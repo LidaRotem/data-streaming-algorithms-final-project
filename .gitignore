@@ -1,0 +1,21 @@
+# Environment
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+
+# Data — raw files are large, do not commit
+data/raw/
+
+# Results — do not commit generated outputs
+results/
+plots/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
