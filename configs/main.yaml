@@ -1,0 +1,41 @@
+# Main experiment configuration
+# All parameters locked — do not hardcode any of these elsewhere
+
+stream:
+  model: insert-only
+  N_max: 1_000_000
+
+topk:
+  k: 100
+
+memory_budgets:
+  M_small: 500
+  M_med: 2000
+  M_large: 8000
+
+sketch:
+  d: 5
+  # w = floor(M / d) — computed at runtime per budget
+
+summary:
+  # m = M entries — computed at runtime per budget
+
+datasets:
+  synthetic:
+    - uniform
+    - zipf
+    - mixture
+  real:
+    - kosarak
+    - retail
+
+seeds:
+  global_seed: 42
+  synthetic_seeds: [0, 1, 2]
+  real_seeds: [0]
+
+point_query:
+  missing_key_policy: zero   # f_hat = 0 for MG/SS when item not in summary
+
+skew:
+  metric: F2_over_F1_squared  # skew = F2 / (F1^2)
