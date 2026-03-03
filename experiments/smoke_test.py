@@ -68,16 +68,17 @@ def run_smoke_test(config_path: str) -> None:
         for algo_name, AlgoClass in ALGORITHM_CLASSES.items():
             try:
                 set_seed(seed)
-                stream = generate_stream("uniform", SMOKE_N, seed)
+                gt_stream = generate_stream("uniform", SMOKE_N, seed)
 
                 # Build ground truth (not timed — baseline only).
                 gt = GroundTruth(M)
-                for item in stream:
+                for item in gt_stream:
                     gt.update(item)
 
                 # Build algorithm and time updates.
                 algo = AlgoClass(M)
-                updates_per_sec, _ = measure_throughput(algo.update, stream)
+                algo_stream = generate_stream("uniform", SMOKE_N, seed)
+                updates_per_sec, _ = measure_throughput(algo.update, algo_stream)
 
                 # Time topk query.
                 t_q0 = time.perf_counter()

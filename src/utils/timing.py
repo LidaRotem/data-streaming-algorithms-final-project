@@ -31,8 +31,10 @@ def measure_throughput(func, items: list) -> tuple[float, float]:
         Stream of items to process.
     """
     t0 = time.perf_counter()
+    count = 0
     for item in items:
         func(item)
+        count += 1
     elapsed = time.perf_counter() - t0
-    updates_per_sec = len(items) / elapsed if elapsed > 0 else float("inf")
+    updates_per_sec = count / elapsed if elapsed > 0 else float("inf")
     return updates_per_sec, elapsed

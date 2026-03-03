@@ -48,10 +48,10 @@ def recall_at_k(true_topk: list, estimated_topk: list, k: int) -> float:
     return len(true_set & est_set) / k
 
 
-def overlap_at_k(true_topk: list, estimated_topk: list, k: int) -> int:
-    """Number of items in common between true top-k and estimated top-k.
+def overlap_at_k(true_topk: list, estimated_topk: list, k: int) -> float:
+    """Fraction of items in common between true top-k and estimated top-k.
 
-    overlap@k = |T_true ∩ T_hat|
+    overlap@k = |T_true ∩ T_hat| / k
 
     Parameters
     ----------
@@ -62,6 +62,8 @@ def overlap_at_k(true_topk: list, estimated_topk: list, k: int) -> int:
     k:
         Number of top items to consider.
     """
+    if k <= 0:
+        return 0.0
     true_set = {item for item, _ in true_topk[:k]}
     est_set = {item for item, _ in estimated_topk[:k]}
-    return len(true_set & est_set)
+    return len(true_set & est_set) / k

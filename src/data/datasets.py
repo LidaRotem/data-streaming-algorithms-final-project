@@ -4,8 +4,10 @@ Provides load_dataset() which dispatches to:
   - synthetic generators (src.data.synthetic) for uniform / zipf_* / mixture
   - real dataset parsers  (src.data.parsers)   for kosarak / retail
 
-Processed streams are read from / written to data/processed/<name>.txt.
+Processed streams are cached to data/processed/<name>.txt.
 If a processed file already exists it is read directly (no re-generation).
+
+Each call to load_dataset() returns a fresh independent generator.
 
 Usage
 -----
@@ -13,13 +15,17 @@ Config is loaded once at the experiment entry point and passed explicitly::
 
     cfg = yaml.safe_load(open("configs/main.yaml"))
     stream = load_dataset("zipf_1_1", cfg, seed=0)
+
+NOTE: For experiment runs, call generate_stream() directly with the per-run
+seed to ensure correct seed isolation. load_dataset() is intended for
+dataset characterization (characterize_data.py) which uses the cached files.
 """
 
 import os
 import sys
 
 from src.data.synthetic import generate_stream
-from src.data.parsers import parse_and_save
+from src.data.parsers import parse_and_save, _stream_from_file
 from src.utils.timing import set_seed
 
 
@@ -31,14 +37,17 @@ def _processed_path(dataset_name: str, processed_dir: str) -> str:
     return os.path.join(processed_dir, f"{dataset_name}.txt")
 
 
-def _read_processed(path: str) -> list:
-    """Load a processed stream from a text file (one integer per line)."""
+def _read_processed(path: str):
+    """Generator — yields one integer item at a time from a processed file."""
     with open(path, "r", encoding="utf-8") as fh:
-        return [int(line.strip()) for line in fh if line.strip()]
+        for line in fh:
+            line = line.strip()
+            if line:
+                yield int(line)
 
 
-def load_dataset(dataset_name: str, cfg: dict, seed: int) -> list:
-    """Load (or generate) a dataset as a flat list of integer item IDs.
+def load_dataset(dataset_name: str, cfg: dict, seed: int):
+    """Load (or generate) a dataset, returning a fresh generator.
 
     Parameters
     ----------
@@ -48,13 +57,12 @@ def load_dataset(dataset_name: str, cfg: dict, seed: int) -> list:
     cfg:
         Full config dict loaded from configs/main.yaml.
     seed:
-        Random seed for synthetic generators. set_seed(seed) is called
-        internally before generation.
+        Random seed for synthetic generators.
 
     Returns
     -------
-    list
-        Stream of integer item IDs, length ≤ N_max.
+    generator
+        Fresh generator of integer item IDs, yielding at most N_max items.
 
     Raises
     ------
@@ -75,27 +83,26 @@ def load_dataset(dataset_name: str, cfg: dict, seed: int) -> list:
         N = int(syn_cfg.get("N", N_max))
 
         if os.path.exists(processed_file):
-            stream = _read_processed(processed_file)
             print(
-                f"  [{dataset_name}] loaded {len(stream):,} items from cache.",
+                f"  [{dataset_name}] reading from cache.",
                 file=sys.stderr,
             )
-            return stream
+            return _read_processed(processed_file)
 
-        # Generate fresh stream
+        # Generate fresh stream and write to cache
         set_seed(seed)
         kwargs = {k: v for k, v in syn_cfg.items() if k != "N"}
-        stream = generate_stream(dataset_name, N, seed, **kwargs)
-
         os.makedirs(processed_dir, exist_ok=True)
+        count = 0
         with open(processed_file, "w", encoding="utf-8") as fh:
-            for item in stream:
+            for item in generate_stream(dataset_name, N, seed, **kwargs):
                 fh.write(f"{item}\n")
+                count += 1
         print(
-            f"  [{dataset_name}] generated {len(stream):,} items → {processed_file}",
+            f"  [{dataset_name}] generated {count:,} items → {processed_file}",
             file=sys.stderr,
         )
-        return stream
+        return _read_processed(processed_file)
 
     # ------------------------------------------------------------------
     # Real datasets
@@ -107,15 +114,13 @@ def load_dataset(dataset_name: str, cfg: dict, seed: int) -> list:
         raw_path = os.path.join(raw_dir, raw_file)
 
         if os.path.exists(processed_file):
-            stream = _read_processed(processed_file)
             print(
-                f"  [{dataset_name}] loaded {len(stream):,} items from cache.",
+                f"  [{dataset_name}] reading from cache.",
                 file=sys.stderr,
             )
-            return stream
+            return _read_processed(processed_file)
 
-        stream = parse_and_save(raw_path, processed_file, N_max)
-        return stream
+        return parse_and_save(raw_path, processed_file, N_max)
 
     raise ValueError(
         f"Unknown dataset_name '{dataset_name}'. "

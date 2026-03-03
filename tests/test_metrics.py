@@ -54,14 +54,14 @@ class TestOverlapAtK:
     def test_partial_overlap(self):
         true = _make_topk(["A", "B", "C", "D", "E"])
         est = _make_topk(["A", "B", "X", "Y", "Z"])
-        assert overlap_at_k(true, est, k=5) == 2
+        assert overlap_at_k(true, est, k=5) == approx(0.4)
 
     def test_full_overlap(self):
         true = _make_topk(["A", "B", "C"])
         est = _make_topk(["A", "B", "C"])
-        assert overlap_at_k(true, est, k=3) == 3
+        assert overlap_at_k(true, est, k=3) == approx(1.0)
 
     def test_no_overlap(self):
         true = _make_topk(["A", "B", "C"])
         est = _make_topk(["X", "Y", "Z"])
-        assert overlap_at_k(true, est, k=3) == 0
+        assert overlap_at_k(true, est, k=3) == approx(0.0)

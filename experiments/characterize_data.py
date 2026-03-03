@@ -69,8 +69,8 @@ def main():
 
     data_cfg = cfg["data"]
     processed_dir = data_cfg["processed_dir"]
-    plots_dir = "plots"
-    stats_csv_path = os.path.join("results", "dataset_stats.csv")
+    plots_dir = cfg.get("plots_dir", "plots")
+    stats_csv_path = os.path.join(cfg.get("results_dir", "results"), "dataset_stats.csv")
 
     # Build ordered list of datasets to process
     synthetic_names = list(data_cfg["datasets"]["synthetic"].keys())
@@ -92,7 +92,7 @@ def main():
     for name in all_datasets:
         print(f"\n[{name}] Loading stream …")
         set_seed(global_seed)
-        stream = load_dataset(name, cfg, seed=global_seed)
+        stream = list(load_dataset(name, cfg, seed=global_seed))
 
         print(f"[{name}] Computing stats …")
         stats = compute_stats(stream)

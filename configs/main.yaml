@@ -44,16 +44,6 @@ data:
       retail:
         raw_file: retail.dat
 
-datasets:
-  synthetic:
-    - uniform
-    - zipf_1_1
-    - zipf_1_3
-    - mixture
-  real:
-    - kosarak
-    - retail
-
 seeds:
   global_seed: 42
   synthetic_seeds: [0, 1, 2]
@@ -64,3 +54,9 @@ point_query:
 
 skew:
   metric: F2_over_F1_squared  # skew = F2 / (F1^2)
+
+execution:
+  max_workers: null  # null = os.cpu_count() - 1
+
+plots_dir: plots
+results_dir: results
