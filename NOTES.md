@@ -122,10 +122,43 @@ b586faa chore: add gitignore, commit conventions, CLAUDE.md
 - `data/raw/` gitignored — raw files are large, download sources documented in `data/raw/README.md`.
 
 ### Stage 3 handback
-`[pending]`
+`[2026-03-03] [Coding Agent] Stage 3 complete. All 6 datasets generated, 12 plots saved, dataset_stats.csv correct, 50/50 tests pass.`
+
+**What was built:**
+- `src/data/synthetic.py` — generate_stream() for uniform, zipf_1_1, zipf_1_3, mixture
+- `src/data/parsers.py` — parse_transaction_file() and parse_and_save() for Kosarak/Retail (gzip auto-detect)
+- `src/data/datasets.py` — load_dataset() unified loader with processed file cache
+- `src/metrics/skew.py` — compute_stats(), plot_rank_frequency(), plot_frequency_histogram()
+- `experiments/characterize_data.py` — full characterization script, outputs dataset_stats.csv and 12 plots
+
+**Decisions made (PM approved):**
+- retail N=908,576 (< N_max) — all items retained, no truncation applied
+- characterize_data.py overwrites dataset_stats.csv on each run (idempotent script, not append-only)
+- compute_stats() added to skew.py; compute_skew() kept for backward compat
+- .gitignore: data/raw/*.dat ignored; results/results.csv and winners.csv ignored; plots/ and dataset_stats.csv tracked
 
 ### Stage 4 handback
-`[pending]`
+`[2026-03-03] [Coding Agent] Stage 4 complete. 20/20 DoD passed, QA cleared.`
+
+**What was built:**
+- Amendment 1 applied: generate_stream(), parse_transaction_file(), load_dataset() all converted to generators
+- smoke_test.py approved fix: two separate generate_stream() calls
+- run_all.py: ProcessPoolExecutor, 210 runs, tqdm progress, results/results_full.csv
+- tests/test_streaming.py: 6 new streaming tests (56 total)
+- Makefile, execution.max_workers in config, plots_dir/results_dir in config
+
+**Decisions made (PM approved):**
+- measure_throughput() fixed to count items during iteration (len() fails on generators)
+- experiments/__init__.py added to resolve package vs module conflict
+- characterize_data.py materialises stream with list() — intentional exception for non-hot-path script
+- overlap_at_k normalised to [0,1] (was returning raw count); TestOverlapAtK tests updated to match
+- overlap_at_k patched in results_full.csv as precision_at_k (equal when |T̂|=k); grid not re-run
+
+**Results summary:**
+- 210 rows, 25 columns, all valid
+- Wall time: 67.1s (1.1 min), 27 workers
+- uniform: near-zero precision (expected — no heavy hitters)
+- zipf_1_3 + MG/SS: precision = 1.000 (expected — strong heavy tail)
 
 ### Stage 5 handback
 `[pending]`

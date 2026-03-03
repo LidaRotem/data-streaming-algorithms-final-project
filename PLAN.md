@@ -17,12 +17,12 @@ Given the same memory budget, how does **Top-k heavy hitters** identification co
 | 1 — Repo skeleton | ✅ DONE | All 15 rows in results.csv, clean smoke test |
 | 2 — Algorithms + tests | ✅ DONE | 50/50 tests pass, all 5 algos implemented, QA passed |
 | 3 — Data + skew | ✅ DONE | All 6 streams generated, stats CSV, 12 plots |
-| 4 — Full experiment grid | ⬜ Awaiting Stage 3 | Wait for PM briefing |
+| 4 — Full experiment grid | ✅ DONE | 210 rows, 25 cols, results_full.csv complete |
 | 5 — Plot generation | ⬜ Awaiting Stage 4 | Wait for PM briefing |
 | 6 — Report polish + translate | ⬜ Awaiting Stage 5 | Wait for PM briefing |
 | 7 — Submission packaging | ⬜ Awaiting Stage 6 | Wait for PM briefing |
 
-**Current instruction: Stage 3 DONE. Do not begin Stage 4 without a new briefing from the PM.**
+**Current instruction: Stage 4 DONE. Do not begin Stage 5 without a new briefing from the PM.**
 
 > ⚠️ **Professor feedback incorporated [2026-03-02]:** recall@k added, point-query bucket reporting hardened, memory_bytes now required, histogram added to skew plots. See NOTES.md for full detail.
 
