@@ -231,8 +231,8 @@ query(item):
 during iteration). Despite being O(m) per eviction event, MG achieves ~1.96M updates/sec
 — 15× faster than CMS — because eviction is rare on skewed streams (most updates hit the
 `item in counters` branch) and the small dict (47 KB at M=500) fits entirely in CPU L2/L3
-cache, making random-access dict lookups much faster than hash-indexed numpy array accesses
-across CMS's 1 MB+ table.
+cache, making the common-case dict lookup much faster than CMS's 5-hash + 5-array-index
+update path (plus a candidates Counter increment per update).
 
 **Memory:** O(m) key-count pairs. m = M in this experiment. Key overhead scales with key size.
 
@@ -244,8 +244,8 @@ overcount by at most the minimum count in the structure.
 
 **Implementation:** lazy min-heap alongside a dict for O(log m) updates.
 
-**Memory:** O(m) key-count pairs. Like MG, memory scales with key object size (string keys make
-memory_bytes grow much larger than sketches).
+**Memory:** O(m) key-count pairs. Memory is dominated not by key size (keys are Python ints)
+but by stale heap tuples accumulated during lazy deletion — see §4.1 Fig. 5 notes.
 
 ### 2.4 Prior Expectations
 
@@ -282,7 +282,7 @@ M is defined uniformly as a **number of counters or entries**:
 
 This ensures all algorithms receive the same number of "slots." A secondary comparison by actual
 `memory_bytes` is shown in Fig. 5 — sketches use a fixed-depth numpy array whose size scales with M (~1.03 MB at M=500 to ~1.09 MB at M=8000);
-SS uses Python dict entries with string keys and grows to >30MB at M=8000 due to key overhead.
+SS grows to >30MB at M=8000 due to accumulated stale heap tuples (see §3.2 breakdown table).
 
 `memory_bytes` is computed as: (1) for sketches: numpy table `.nbytes` + Python `sys.getsizeof`
 over the candidates Counter including all key-value pairs; (2) for MG/SS: Python `sys.getsizeof`
@@ -294,6 +294,18 @@ but not memory allocator padding or interpreter internals. Measured mean values:
 | CMS / CMS-CU / CS | 1.03 MB | 1.05 MB | 1.09 MB |
 | MG | 46 KB | 178 KB | 988 KB |
 | SS | 25.8 MB | 31.3 MB | 39.6 MB |
+
+Approximate memory breakdown at M=500 (mean across datasets):
+
+| Component | CMS / CMS-CU / CS | MG | SS |
+|---|---|---|---|
+| numpy table | 4,000 B | — | — |
+| candidates Counter / dict | ~1,030,000 B | 46,663 B | — |
+| heap (incl. stale tuples) | — | — | ~25,000,000 B |
+| **Total** | ~1,034,612 B | 46,663 B | ~27,024,165 B |
+
+The candidates Counter is the dominant sketch memory component at all budgets.
+SS memory is dominated by accumulated stale heap tuples (see §4.1 Fig. 5 notes).
 
 Our memory model has two components: (1) the M-slot budget (sketch table or summary entries),
 which is the primary comparison axis; and (2) an auxiliary candidates Counter used by sketch
@@ -327,6 +339,17 @@ This is noted as a threat to validity in §5.3.
   Source file: `retail.dat` (gzip-compressed; auto-detected by loader).
   Same basket→stream parsing as Kosarak. N = 908,576 (no truncation needed;
   full dataset used). Stream order preserved from file.
+
+**Fig. A1 — Rank-frequency log-log plots for real datasets:**
+
+![Rank-Frequency (log-log) — Kosarak](../plots/skew_loglog_kosarak.png)
+*Fig. A1a: Kosarak rank-frequency plot. The approximately straight line on log-log
+axes indicates power-law (Zipf-like) distribution. The slight curve at high ranks
+reflects the natural heavy-tail of clickstream data.*
+
+![Rank-Frequency (log-log) — Retail](../plots/skew_loglog_retail.png)
+*Fig. A1b: Retail rank-frequency plot. Similar power-law shape to Kosarak,
+with a steeper initial drop reflecting fewer ultra-high-frequency items.*
 
 #### 3.3.3 Dataset Characterization
 
@@ -437,10 +460,17 @@ due to per-update Counter management for candidate tracking.
 
 A single panel showing mean memory_bytes vs M for each algorithm.
 
-*Takeaway:* Sketches (CMS, CMS-CU, CS) use ~1.03–1.09 MB regardless of M (fixed numpy array
-plus a ~0.5–1.5 MB candidates Counter growing with F0). MG scales linearly from 47K to 1.01MB bytes (key-count pairs).
-SS grows from ~27MB to ~42MB — the large footprint comes from Python string objects stored per key.
-In terms of raw bytes, SS is the most memory-intensive algorithm despite only holding M key-count entries.
+*Takeaway:* Sketch memory is dominated by the candidates Counter, not the numpy table.
+At M=500: numpy table = d×w×8 bytes = 5×100×8 = 4,000 bytes; candidates Counter ≈ 1.03 MB
+(F0 key-value pairs in Python). The numpy table grows modestly with M (4 KB at M=500 → 64 KB
+at M=8000), while the Counter size depends on F0 and is largely independent of M — explaining
+why all three sketch lines cluster together and remain nearly flat in Fig. 5.
+MG scales linearly from 47 KB to 1.01 MB (bounded dict of ≤M key-count pairs).
+SS grows from ~27 MB to ~42 MB: keys are Python ints, but the heap accumulates O(N) stale
+(count, item) tuples over N=1M updates (each update pushes to heap; lazy deletion only cleans
+during evictions). After 1M updates the heap can hold hundreds of thousands of stale tuples
+(~72 bytes each), dominating SS memory. This is a measurement artifact of the lazy-deletion
+implementation, not an inherent property of the Space-Saving algorithm.
 
 ### 4.2 Main Result
 
@@ -544,22 +574,36 @@ The following rules are derived directly from the data:
 **Surprises:**
 
 1. **The mixture dataset:** Despite being engineered with 50 heavy items collectively holding 50%
-   of total stream mass, MG and SS achieved only ~51% Precision@k at M=500 and ~78–78% at M=8000
+   of total stream mass, MG and SS achieved only ~51% Precision@k at M=500 and ~78% at M=8000
    — substantially below Kosarak (78% and 100% at the same budgets), which has lower or similar skew
-   (mixture: 0.005, kosarak: 0.013). Intuitively, the mixture dataset has a hard boundary: its 50 heavy
-   items are all close in frequency (~1% each), making them difficult to reliably distinguish from
-   the uniform background (which has ~0.005% per item each, given 50% mass spread over ~9,950 background items). In contrast, Kosarak's natural heavy-tail
-   distribution creates a sharper separation between the true top-100 and the rest, even though
-   its aggregate skew value is moderate. This reveals a limitation of using F2/F1² as the sole
-   predictor of difficulty: skew captures total concentration but not the sharpness of the
-   heavy/background boundary.
+   (mixture: 0.005, kosarak: 0.013). The rank-frequency plot for mixture (Fig. A2) reveals why:
+   the 50 heavy items are ~100× more frequent than background items (a very sharp cliff at rank 50),
+   so MG/SS correctly identify all 50 heavy items. However, with k=100, the algorithm must also
+   predict 50 background items — and among the ~9,950 uniform background items (each with ~50
+   occurrences), there is no frequency signal to distinguish the "true" rank-51 to rank-100 items
+   from any other background item. Precision@k is therefore bounded at ~50/100 = 50% for any
+   algorithm, regardless of heavy-item detection quality. This reveals a limitation of using
+   Precision@k with k > (number of true heavy hitters): the metric penalizes algorithms for
+   background items that are indistinguishable by design. In contrast, Kosarak's natural heavy-tail
+   distribution provides a gradient of frequencies all the way through the top-100, making item
+   discrimination possible even at rank 100.
+
+![Rank-Frequency (log-log) — Mixture](../plots/skew_loglog_mixture.png)
+*Fig. A2: Mixture rank-frequency plot. The sharp cliff at rank 50 shows the
+50 engineered heavy items (~10,000 occurrences each) followed by an abrupt
+drop to the uniform background (~50 occurrences each). The absence of a
+gradient makes background item ranking impossible.*
 
 2. **MG throughput gap:** MG is **15× faster than CMS** and **28× faster than CMS-CU**. We
    expected MG to be faster (no hashing, simple dict operations), but this magnitude surprised us.
-   The likely explanation is cache locality: MG's dictionary of ≤M key-count pairs fits in L2/L3
-   cache at M=500 (47KB) and M=2000 (182KB), while CMS's 2D numpy array of d×w counters requires
-   sequential hash-indexed accesses across a potentially cache-cold 1MB+ array. This effect
-   dominates even though numpy operations are individually faster than Python dict lookups.
+   The likely explanation is update path asymmetry on skewed streams: MG's common-case
+   update is a single Python dict increment (`self._counters[item] += 1`), whereas CMS
+   performs d=5 independent hash computations followed by 5 array index increments,
+   plus a candidates Counter update — roughly 7× more operations per update.
+   The O(m) eviction loop in MG is triggered only when a new unseen item arrives and
+   the table is full; on skewed streams this is rare (most updates hit the heavy-hitter
+   branch). The sketch numpy table itself is small (4 KB at M=500) and cache-warm,
+   but the per-update operation count dominates throughput at this scale.
 
 3. **Uniform precision at M=8000 — MG reaches only 35.7%:** The theoretical guarantee for MG
    (all items with frequency > N/(m+1)) at M=8000 is items with frequency > 1,000,000/8001 ≈ 125.
@@ -619,8 +663,9 @@ The following rules are derived directly from the data:
 
 - **memory_bytes is approximate:** our implementation measures numpy array `.nbytes` plus
   Python `sys.getsizeof` over counters, but does not account for Python object headers or
-  memory allocator overhead. SS memory footprints (>30MB) are dominated by Python string objects
-  and are genuinely larger than sketch memory, but the exact values are platform-dependent.
+  memory allocator overhead. SS memory footprints (>30MB) are dominated by accumulated stale
+  heap tuples (see §4.1 Fig. 5 notes) and are genuinely larger than sketch memory, but the
+  exact values are platform-dependent.
 
 - **Sketch candidate tracking:** our sketch `topk()` relies on an unbounded candidates
   Counter (one entry per distinct item seen), which is not bounded by M. This gives
