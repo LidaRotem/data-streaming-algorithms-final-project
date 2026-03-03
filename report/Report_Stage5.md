@@ -274,6 +274,18 @@ Before running experiments, we expected:
   python experiments/make_plots.py --config configs/main.yaml
   ```
 
+**Hash function family (from `src/utils/hashing.py`):** Sketch algorithms (CMS, CMS-CU, CS) use a
+Carter–Wegman pairwise-independent hash family. Each row i uses a distinct function
+h_i(x) = (a_i · x + b_i) mod p mod w, where p = 2³¹ − 1 (Mersenne prime 2,147,483,647),
+w is the sketch width (⌊M/d⌋), and (a_i, b_i) are drawn independently per row from
+numpy.random.default_rng(seed). Independence across d rows is achieved by sampling a separate
+(a_i, b_i) pair for each row from the same seeded RNG. Item keys are first mapped through
+Python's built-in hash() before applying the Carter–Wegman function, allowing the family to
+handle integer and string keys uniformly. Count-Sketch additionally uses a sign hash
+g_i(x) = 2 · ((c_i · x + e_i) mod p mod 2) − 1 → {−1, +1}, with independently drawn (c_i, e_i)
+per row. All hash parameters are generated once at construction time from the provided seed,
+ensuring fully reproducible results given the same seed value.
+
 ### 3.2 Fairness: Defining "Same Memory Budget"
 
 M is defined uniformly as a **number of counters or entries**:
@@ -281,7 +293,9 @@ M is defined uniformly as a **number of counters or entries**:
 - **Summaries (MG, SS):** M = m entries (key-count pairs).
 
 This ensures all algorithms receive the same number of "slots." A secondary comparison by actual
-`memory_bytes` is shown in Fig. 5 — sketches use a fixed-depth numpy array whose size scales with M (~1.03 MB at M=500 to ~1.09 MB at M=8000);
+`memory_bytes` is shown in Fig. 5 — total sketch memory (~1.03 MB at M=500 to ~1.09 MB at M=8000)
+is dominated by the ~1MB candidates Counter, not the 4KB numpy table (which grows from 4KB at M=500
+to 64KB at M=8000 as d×w×8 bytes);
 SS grows to >30MB at M=8000 due to accumulated stale heap tuples (see §3.2 breakdown table).
 
 `memory_bytes` is computed as: (1) for sketches: numpy table `.nbytes` + Python `sys.getsizeof`
@@ -315,6 +329,13 @@ memory to each sketch. All results should be interpreted under this two-componen
 A production sketch implementation would replace the unbounded Counter with a bounded
 heavy-hitter sub-routine (e.g., a small MG summary of size λ·M), which we leave as future work.
 This is noted as a threat to validity in §5.3.
+
+**Bounded-candidate ablation (CMS-B):** To directly test the impact of the unbounded candidates
+Counter, we implemented CMS-B: identical to CMS except the candidates Counter is capped at M
+entries with minimum-count eviction (the same policy as MG). This makes CMS-B's total memory
+directly comparable to MG and SS under a strict M-slot budget. We ran CMS-B on zipf_1_3 across
+all three budgets and three seeds (9 additional runs, appended to results_full.csv). Results and
+analysis are in §4.2 and §5.3.
 
 ### 3.3 Data
 
@@ -490,6 +511,25 @@ Precision@k equal to or greater than any sketch at every budget:
 most skewed datasets. On Zipf α=1.3: CMS reaches 1.000 at M=8000, matching MG/SS — but only
 because the budget is large enough that collisions become negligible. The critical observation
 is that MG/SS are already perfect at M=500 on this dataset, while CMS needs 16× more memory.
+
+**Bounded-candidate ablation — Precision@k on zipf_1_3 (mean over seeds 0,1,2):**
+
+| Algorithm | M=500 | M=2000 | M=8000 |
+|---|---|---|---|
+| CMS | 0.403 | 0.923 | 1.000 |
+| CMS-B | 0.733 | 0.973 | 1.000 |
+| CMS-CU | 0.523 | 0.947 | 1.000 |
+| CS | 0.257 | 0.657 | 0.963 |
+| MG | 1.000 | 1.000 | 1.000 |
+| SS | 1.000 | 1.000 | 1.000 |
+
+Bounded-candidate ablation: On zipf_1_3, CMS-B achieves Precision@k = 0.733 at M=500,
+0.973 at M=2000, and 1.000 at M=8000. Standard CMS achieves 0.403, 0.923, and 1.000.
+MG achieves 1.000 at all budgets. The precision gap between CMS-B and MG is 0.267 at M=500,
+confirming that the MG/SS advantage on skewed streams is driven primarily by sketch collision
+errors, not by the unbounded candidate tracking alone. Bounding the Counter to M entries
+substantially improves CMS precision (0.403 → 0.733), but a gap of 0.267 persists, attributable
+to hash collisions in the sketch table rather than candidate list size.
 
 **Budget sensitivity.** All algorithms benefit from larger M, but the gains are asymmetric:
 sketches show steep improvement (CMS: +0.394, CS: +0.458 from M=500 to M=8000), while MG/SS
@@ -671,7 +711,10 @@ gradient makes background item ranking impossible.*
   Counter (one entry per distinct item seen), which is not bounded by M. This gives
   sketches an advantage on Top-k identification that a fully space-bounded implementation
   would not have, and inflates their `memory_bytes` in Fig. 5. A fair comparison would
-  use a bounded heavy-hitter sub-routine for candidate tracking.
+  use a bounded heavy-hitter sub-routine for candidate tracking. The CMS-B ablation (§4.2)
+  provides a direct test: CMS-B achieves Precision@k = 0.733 on zipf_1_3 at M=500 versus
+  MG at 1.000 (gap = 0.267), confirming the precision gap is primarily driven by sketch
+  collision errors, not by unbounded candidate tracking.
 
 ---
 
@@ -717,6 +760,9 @@ identify the top-k.
   improve per-dataset difficulty prediction.
 - **Adaptive algorithms:** hybrid approaches that switch between sketch and summary modes
   based on observed skew could capture the best of both families.
+- **Full CMS-B grid:** The 9-run CMS-B ablation on zipf_1_3 shows Precision@k = 0.733 at
+  M=500 under a bounded memory model. A full 210-run grid with CMS-B would clarify whether
+  bounded candidate tracking changes family rankings across all datasets and skew levels.
 
 ---
 

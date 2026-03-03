@@ -18,11 +18,14 @@ Given the same memory budget, how does **Top-k heavy hitters** identification co
 | 2 — Algorithms + tests | ✅ DONE | 50/50 tests pass, all 5 algos implemented |
 | 3 — Data + skew | ✅ DONE | 12 plots, dataset_stats.csv, all 6 processed streams |
 | 4 — Full experiment grid | ✅ DONE | 210 rows in results_full.csv, all metrics valid |
-| 5 — Plot generation + report §4/§5 | ⬜ Next | Wait for PM briefing |
-| 6 — Report polish + translate | ⬜ Awaiting Stage 5 | Wait for PM briefing |
+| 5 — Plot generation + report §4/§5 | ✅ DONE | 5 figures, winners.csv, full report generated |
+| 6 — Report polish + translate | 🔄 IN PROGRESS | CMS-B ablation added; global consistency sweep applied |
 | 7 — Submission packaging | ⬜ Awaiting Stage 6 | Wait for PM briefing |
 
-**Current instruction: Stages 1–4 complete. Do not begin Stage 5 without a new briefing from the PM.**
+**Note (Stage 6a Part 5, 2026-03-03):** CMS-B ablation added.
+results_full.csv now has 219 rows (210 original + 9 CMS-B on zipf_1_3).
+
+**Current instruction: Stage 5 DONE. Stage 6 IN PROGRESS.**
 
 ---
 
@@ -63,6 +66,10 @@ Expected rows in `results/results_full.csv`:
 - Synthetic: 4 × 3 × 5 × 3 = **180**
 - Real: 2 × 3 × 5 × 1 = **30**
 - **Total: 210 rows** ✅ confirmed
+
+**Additional variant (Stage 6a Part 5):**
+- CMS-B (bounded candidate ablation): zipf_1_3 only, 3 budgets × 3 seeds = **9 rows**
+- Updated total: **219 rows** in results_full.csv
 
 Note: zipf was split into two datasets (zipf_1_1 α=1.1 and zipf_1_3 α=1.3) — this is why the count is 210 not 165.
 

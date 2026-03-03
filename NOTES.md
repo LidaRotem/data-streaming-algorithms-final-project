@@ -153,10 +153,94 @@ Maintained by: PM
 - CMS-CU is slowest (63K–88K updates/sec); MG is fastest (1M–2.6M updates/sec)
 
 ### Stage 5 handback
-`[pending]`
+`[2026-03-03] [Coding Agent] Stage 5 complete. All 15 DoD items confirmed ✅.`
+
+**What was built:**
+- `experiments/make_plots.py`: full implementation; 5 figures generated clean from results_full.csv
+- `plots/fig_1_precision.png` — 6-panel Precision@k vs M, error bars for synthetic
+- `plots/fig_2_overlap.png` — 6-panel Overlap@k vs M (identical to Fig 1, required separately)
+- `plots/fig_3_mae.png` — MAE by bucket (heavy/mid/rare), grand mean across datasets, log scale
+- `plots/fig_4_throughput.png` — Throughput by dataset, log-log scale
+- `plots/fig_5_memory_bytes.png` — Actual memory bytes vs M, single panel, log scale
+- `results/winners.csv` — 18 rows (6 datasets × 3 budgets), schema: dataset, M, budget_label, best_algo, best_precision, runner_up, runner_up_precision
+- `report/Report_Stage5.md` — complete report: Abstract, §0 Executive Summary, §1 Intro, §2 Background, §3 Setup, §4 Results, §5 Discussion, §6 Conclusions, Appendices A & B; all numbers from data
+
+**Key findings confirmed from data:**
+- MG/SS: Precision@k = 1.000 on Zipf α=1.3 at all budgets; CMS-CU best sketch at 0.523 (M=500)
+- MG throughput: 1.96M/s = 15× CMS (130K/s), 28× CMS-CU (69K/s)
+- CMS-CU largest improvement: Kosarak M=2000, Δ=+0.280 (0.60→0.88)
+- mixture surprise: MG/SS only ~51% precision at M=500 despite engineered heavy hitters — addressed in §5.1
+- SS memory_bytes: >30MB at all budgets (Python string key overhead); sketches ~1MB fixed
+  [CORRECTION 2026-03-03] SS large memory is caused by O(N) stale tuples in the lazy-deletion
+  heap, not string keys. Keys are Python ints (parsers.py yields int(token)). Each update()
+  calls heapq.heappush without cleanup; stale entries only removed during eviction events. After
+  N=1,000,000 updates the heap holds hundreds of thousands of stale (count, item) tuples (~72
+  bytes each), dominating memory. See Stage 6a Part 5 for details.
+
+**Decisions made:**
+- `winners.csv` is gitignored in `.gitignore` but required by Stage 5 briefing → force-added (`git add -f`)
+- `winners.csv` "best" definition: highest mean precision@k across seeds (as briefed)
+- Where multiple algorithms tie at 1.000, whichever appears first alphabetically is "winner" (minor, all tied at 1.000)
+- Fig 3 uses log scale on y-axis (grand MAE spans 1–5,059 — log scale required for readability)
+- Fig 5 uses aggregate mean across datasets (not per-dataset) as briefed
+
+**Deviations:**
+- None from briefing.
+
+**Blockers / questions for Stage 6:**
+- §1 Intro, §2.3 algorithm descriptions, §2.4 pre-experiment expectations, §6 Conclusions are in the report as stubs filled with content — PM should verify whether to carry forward or rewrite for Stage 6 polish.
+- Hebrew translation (Stage 6) — will need original English text finalized first.
 
 ### Stage 6 handback
-`[pending]`
+`[2026-03-03] [Coding Agent] Stage 6a Part 5 complete. All 20 DoD items confirmed ✅.`
+
+**CMS-B ablation results (zipf_1_3, mean over seeds 0,1,2):**
+| Algorithm | M=500 | M=2000 | M=8000 |
+|---|---|---|---|
+| CMS-B | 0.733 | 0.973 | 1.000 |
+| CMS (unbounded) | 0.403 | 0.923 | 1.000 |
+| MG | 1.000 | 1.000 | 1.000 |
+
+- Bounded vs unbounded CMS precision delta at M=500: +0.330 (0.403 → 0.733)
+- Gap between CMS-B and MG at M=500: 0.267
+- Conclusion: MG/SS advantage is driven primarily by sketch collision errors, not unbounded
+  candidate tracking. Bounding the Counter to M entries (CMS-B) substantially improves
+  precision but cannot close the gap to MG/SS on high-skew streams.
+- CMS-B memory at M=500: ~69KB (vs CMS ~834KB, MG ~50KB) — directly comparable to MG
+
+**Hash family (from src/utils/hashing.py):**
+- Carter-Wegman family: h_i(x) = (a_i·x + b_i) mod p mod w, p = 2^31 − 1
+- Independence: each row draws separate (a_i, b_i) from numpy.random.default_rng(seed)
+- Sign hash for CS: g_i(x) = 2·((c_i·x + e_i) mod p mod 2)−1 ∈ {−1, +1}
+- Documented in §3.1 of report
+
+**All 7 sweeps applied to report/Report_Stage5.md:**
+1. ✅ §3.2: Fixed "fixed-depth numpy array ~1.03MB" → "total sketch memory dominated by Counter"
+2. ✅ No "string keys" / SS explanation already correct in all sections; NOTES.md correction added
+3. ✅ No "cache-cold" or "1MB+ array" text in report (already corrected in prior stage)
+4. ✅ No universal language violations ("consistent across all tested conditions", "In our tested
+   regimes" already present from prior stage)
+5. ✅ Hash family description added to §3.1
+6. ✅ CMS-B results added to §3.2, §4.2, §5.3, §6.2 with real numbers, zero placeholders
+7. ✅ PLAN.md: Stage 5 DONE, Stage 6 IN PROGRESS, CMS-B note, grid table updated
+
+**fig_5 regenerated:** ✅ annotation updated to
+  "Sketches: numpy table (4-64KB) + candidates Counter (~1MB, dominates)"
+
+**pytest results:** 63 passed (56 existing + 7 new CMS-B tests), 0 failed ✅
+
+**results_full.csv:** 219 rows (210 original + 9 CMS-B on zipf_1_3) ✅
+
+**Decisions made (not specified in briefing):**
+- CMS-B memory table not shown in §3.2 (only CMS/MG/SS in existing table) — CMS-B results
+  are in §4.2 ablation table only, to keep §3.2 focused on the original 5-algorithm comparison.
+- "Any dataset with meaningful skew" in PLAN.md line 499 left as-is (not on the reviewer's list).
+
+**Deviations:**
+- None from briefing.
+
+**Blockers / questions for next stage:**
+- Hebrew translation (Stage 6 remaining) still pending PM briefing.
 
 ### Stage 7 handback
 `[pending]`
