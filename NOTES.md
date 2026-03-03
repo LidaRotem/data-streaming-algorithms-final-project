@@ -21,8 +21,8 @@ Maintained by: PM
 
 - Memory budgets set to 500 / 2000 / 8000. Rationale: covers tight/moderate/comfortable regimes with ~4x ratio between steps, suitable for log-scale plots. Kosarak ~41K distinct items, Retail ~17K — 500 forces real pressure on all algorithms.
 - MG/SS missing key policy: f_hat = 0. Rationale: simpler, consistent, discuss implications in Threats to Validity.
-- Real datasets: Kosarak + Retail. Status: not yet downloaded — coding agent to handle in Stage 3.
-- Zipf alpha: use two values (1.1 and 1.3) to capture mild and strong heavy-tail regimes.
+- Real datasets: Kosarak + Retail. Downloaded manually into data/raw/.
+- Zipf alpha: two separate named datasets — zipf_1_1 (alpha=1.1) and zipf_1_3 (alpha=1.3).
 - Seeds: synthetic uses 3 seeds [0,1,2], real uses 1 seed [0]. Global seed = 42.
 
 ---
@@ -32,13 +32,15 @@ Maintained by: PM
 
 **Amendment 1 — Top-k metrics:** Add `recall@k` explicitly alongside `precision@k` and `overlap@k`. All three must appear as separate columns in `results.csv` and separate lines in the report Results section.
 
-**Amendment 2 — Point queries:** Reporting separately by bucket (heavy / mid / rare) is now a hard requirement, not just recommended. Both MAE and relative error must be broken out per bucket. No aggregated-only reporting accepted.
+**Amendment 2 — Point queries:** Reporting separately by bucket (heavy / mid / rare) is now a hard requirement. Both MAE and relative error must be broken out per bucket. No aggregated-only reporting accepted.
 
-**Amendment 3 — Memory fairness:** Must report actual bytes used per algorithm including auxiliary structures (keys stored in MG/SS dicts, candidate Counter in CMS/CS). Add `memory_bytes` column to `results.csv`. Add a figure (Fig 5) comparing actual bytes vs M across algorithms. This resolves open question #3 — it is now a hard requirement, not optional.
+**Amendment 3 — Memory fairness:** Must report actual bytes used per algorithm including auxiliary structures. Add `memory_bytes` column to `results.csv`. Add Fig 5 comparing actual bytes vs M across algorithms. Hard requirement.
 
-**Amendment 4 — Skew visualization:** Both a frequency histogram AND a log-log rank-frequency plot are required per dataset. Previously only log-log was specified. Rename plot outputs to `skew_hist_<dataset>.png` and `skew_loglog_<dataset>.png` for clarity.
+**Amendment 4 — Skew visualization:** Both a frequency histogram AND a log-log rank-frequency plot required per dataset. Outputs: `skew_hist_<dataset>.png` and `skew_loglog_<dataset>.png`.
 
-- Principle: write from data, not from plans.
+### Report writing schedule
+`[2026-03-01] [PM] Integrated report writing across stages — never leave it all to Stage 6.`
+
 - Stage 3 triggers: §2.1, §2.2, §3.3.
 - Stage 4 triggers: §3 full, §4.0.
 - Stage 5 triggers: §4, §5, Abstract, Executive Summary.
@@ -50,15 +52,13 @@ Maintained by: PM
 
 | # | Question | Raised by | Status |
 |---|---|---|---|
-| 1 | Kosarak and Retail download sources — need to confirm URLs and license. | PM | ✅ Resolved — Kosarak: http://fimi.uantwerpen.be/data/kosarak.dat — Retail: http://fimi.uantwerpen.be/data/retail.dat — both public, free for research use. Place in `data/raw/`. |
-| 2 | Zipf alpha: use 1.1 and 1.3 as two separate datasets, or one dataset with two alpha runs? | PM | ✅ Resolved — treat as two separate named datasets: `zipf_low` (alpha=1.1) and `zipf_high` (alpha=1.3). Each gets its own row in dataset_stats.csv and its own plots. |
-| 3 | Key overhead for MG/SS: mention in Threats to Validity only, or add a bytes-based secondary comparison? | PM | ✅ Resolved — now a hard requirement per professor. Add memory_bytes column and Fig 5. |
+| 1 | Kosarak and Retail download sources | PM | ✅ Resolved — downloaded from http://www.cs.rpi.edu/~zaki/Workshops/FIMI/data/ — placed in `data/raw/` |
+| 2 | Zipf alpha: two separate datasets or two alpha runs? | PM | ✅ Resolved — two separate named datasets: `zipf_1_1` (alpha=1.1) and `zipf_1_3` (alpha=1.3) |
+| 3 | Key overhead for MG/SS: Threats to Validity only, or bytes comparison? | PM | ✅ Resolved — hard requirement per professor. `memory_bytes` column + Fig 5. |
 
 ---
 
 ## Stage handbacks
-
-*(Coding agent appends here after each stage is complete)*
 
 ### Stage 1 handback
 `[2026-03-01] [Coding Agent] Stage 1 complete. All DoD items confirmed ✅. No deviations.`
@@ -66,19 +66,15 @@ Maintained by: PM
 **Decisions made (PM approved):**
 - Added `__init__.py` to all `src/` subdirs — correct, enables clean imports.
 - `smoke_test.py` inserts `PROJECT_ROOT` into `sys.path` — acceptable for robustness.
-- `measure_throughput()` added to `timing.py` alongside `set_seed()` — approved, same responsibility boundary.
+- `measure_throughput()` added to `timing.py` alongside `set_seed()` — same responsibility boundary.
 - Ground truth excluded from `updates_per_sec` timing — correct, we measure only the algorithm under test.
 - `.venv` created per user request — run with `.venv/Scripts/python` (Windows) or `.venv/bin/python` (Unix).
-
-**Open question resolved:**
-- `tests/` structure will be specified in the Stage 2 briefing. ✅
 
 ### Professor Feedback Patch handback
 `[2026-03-02] [Coding Agent] All 10 patch DoD items confirmed ✅. Tests: 10 passed, 0 failed.`
 
 **Flag raised by agent — PM confirmed:**
-- Patch document (`Coding_Agent_Professor_Patch.md`) states "Total: 23 columns" but the canonical list has 25. Agent implemented all 25 correctly. The "23" is a PM typo in the patch document only.
-- **Action assigned to coding agent:** correct the typo in `Coding_Agent_Professor_Patch.md` line reading "Total: 23 columns" → "Total: 25 columns". No code changes required — documentation fix only.
+- Patch document states "Total: 23 columns" but canonical list has 25. Agent implemented all 25 correctly. "23" is a PM typo — documentation only, no code impact.
 
 ### Stage 2 handback
 `[2026-03-02] [Coding Agent] Stage 2 complete. 50/50 tests pass, smoke test clean.`
@@ -90,15 +86,40 @@ Maintained by: PM
 - Soft threshold test: all 5 algos passed `precision@10 > 0.5` on Zipf
 
 **Decisions made (PM approved):**
-- `seed=0` default kwarg on CMS/CMS-CU/CS to handle `AlgoClass(M)` calls with no seed arg. Experiment runner (Stage 4) must pass `seed=run_seed` explicitly.
+- `seed=0` default kwarg on CMS/CMS-CU/CS — smoke_test.py calls AlgoClass(M) with no seed. Stage 4 run_all.py must pass `seed=run_seed` explicitly.
 - `CountSketch.query()` returns `max(0, median)` — clips negative estimates. Acceptable.
-- SpaceSaving uses lazy min-heap for O(log M) amortized eviction — good call.
+- SpaceSaving uses lazy min-heap for O(log M) amortized eviction.
+- `import sys` deferred inside `memory_bytes()` in ground_truth.py — unconventional but functional. Accepted.
+- smoke_test.py computes skew inline — Stage 4 run_all.py must use `compute_skew()` from skew.py.
 
-**Open question — resolved:**
-- Kosarak/Retail raw file paths: place in `data/raw/kosarak.dat` and `data/raw/retail.dat`. Configurable via `configs/main.yaml` under `data.raw_dir`. Specified in Stage 3 briefing.
+`[2026-03-02] [QA] Stage 2 QA — PASS. All DoD items verified against source and live execution.`
 
-**Documentation fix still pending:**
-- `Coding_Agent_Professor_Patch.md` line "Total: 23 columns" → "Total: 25 columns". Assigned to coding agent to fix in next session.
+**QA findings (non-blocking):**
+- F1 (resolved): NOTES.md had duplicate Stage 2 handback entry — PM cleaned up.
+- F2 (informational): results.csv has 45 rows from 3 smoke test runs — expected append-only behaviour. Production CSV starts clean in Stage 4.
+- F3 (confirmed deliberate): `precision_at_k` and `recall_at_k` produce identical values when |T_hat|=k. Both defined as |T∩T̂|/k. They diverge only if an algorithm returns fewer than k candidates. Keep both. Note in Threats to Validity.
+- F4 (informational): smoke_test.py computes skew inline — Stage 4 must use compute_skew().
+
+### Git setup handback
+`[2026-03-02] [Coding Agent] Git initialized. 7 commits, clean working tree.`
+
+**Log:**
+```
+a24dca8 docs(plan): log Stages 1-2 complete, professor patch, decisions
+25fe0fc test(stage2): 50 tests across algorithms, ground truth, metrics, quality
+0d2aa5c feat(stage2): implement topk, point_query, skew metrics with professor amendments
+9a8f349 feat(stage2): implement all 5 algorithms and HashFamily
+70a4014 feat(stage1): repo skeleton, results logger, seed handling, smoke test
+6b3c896 config(stage0): lock all experiment parameters in main.yaml
+b586faa chore: add gitignore, commit conventions, CLAUDE.md
+```
+
+**Decisions made (PM approved):**
+- PM briefing/QA docs not committed — management artefacts, not source code.
+- `run_all.py`, `make_plots.py` not committed — unimplemented stubs belong to Stage 4/5.
+- `.claude/` not committed — Claude Code internal memory, not project source.
+- `hashing.py` landed in commit 3 instead of 4 — minor ordering issue, no functional impact.
+- `data/raw/` gitignored — raw files are large, download sources documented in `data/raw/README.md`.
 
 ### Stage 3 handback
 `[pending]`
@@ -121,7 +142,8 @@ Maintained by: PM
 
 | Stage | Deviation | Reason | PM approval |
 |---|---|---|---|
-| — | None yet | — | — |
+| 0 | Zipf split into zipf_1_1 and zipf_1_3 | Captures mild and strong heavy-tail separately — better experimental coverage | ✅ |
+| 0 | Row count updated 165 → 210 | Direct consequence of Zipf split (4 synthetic datasets × 3 × 5 × 3 = 180) | ✅ |
 
 ---
 
@@ -133,3 +155,8 @@ Maintained by: PM
 | Results file | Append-only CSV, one row per run | Simple, inspectable, no database dependency | 0 |
 | Algorithm API | Common interface: update/query/topk/reset | Enables uniform experiment runner | 0 |
 | Stub approach | Stage 1 uses stubs for all algos except GroundTruth | Proves pipeline works before real implementation | 1 |
+| seed=0 default kwarg | CMS/CMS-CU/CS accept seed as kwarg defaulting to 0 | smoke_test.py calls AlgoClass(M) with no seed — Stage 4 must pass seed explicitly | 2 |
+| CountSketch negative clamp | query() returns max(0, median) | Negative estimates are artefacts of sign collisions — clamping is standard practice | 2 |
+| SpaceSaving min-heap | Lazy min-heap alongside dict for O(log M) eviction | Avoids O(M) scan on every update | 2 |
+| precision==recall when \|T_hat\|=k | Both metrics defined as \|T∩T̂\|/k | Deliberate per spec — diverge only if algo returns <k candidates | 2 |
+| data/raw/ gitignored | Raw files not committed | Large files with documented download sources in data/raw/README.md | 2 |

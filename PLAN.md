@@ -15,14 +15,16 @@ Given the same memory budget, how does **Top-k heavy hitters** identification co
 |---|---|---|
 | 0 — Lock decisions | ✅ DONE (PM) | Nothing — decisions already locked |
 | 1 — Repo skeleton | ✅ DONE | All 15 rows in results.csv, clean smoke test |
-| 2 — Algorithms + tests | ✅ DONE | 50/50 tests pass, all 5 algos implemented |
-| 3 — Data + skew | 🔄 IN PROGRESS | See Claude Code prompt — Stage 3 |
+| 2 — Algorithms + tests | ✅ DONE | 50/50 tests pass, all 5 algos implemented, QA passed |
+| 3 — Data + skew | 🔄 IN PROGRESS | See Stage 3 Claude Code prompt |
 | 4 — Full experiment grid | ⬜ Awaiting Stage 3 | Wait for PM briefing |
 | 5 — Plot generation | ⬜ Awaiting Stage 4 | Wait for PM briefing |
 | 6 — Report polish + translate | ⬜ Awaiting Stage 5 | Wait for PM briefing |
 | 7 — Submission packaging | ⬜ Awaiting Stage 6 | Wait for PM briefing |
 
 **Current instruction: Stage 3 is in progress. Do not begin Stage 4 without a new briefing from the PM.**
+
+> ⚠️ **Professor feedback incorporated [2026-03-02]:** recall@k added, point-query bucket reporting hardened, memory_bytes now required, histogram added to skew plots. See NOTES.md for full detail.
 
 ---
 
@@ -38,7 +40,7 @@ Given the same memory budget, how does **Top-k heavy hitters** identification co
 | Summary size m | M entries — computed at runtime |
 | Real datasets | Kosarak + Retail |
 | N_max (truncation) | 1,000,000 |
-| Skew metric | F2 / F1² + rank-frequency log-log plot |
+| Skew metric | F2 / F1² + rank-frequency log-log plot + frequency histogram |
 | MG/SS missing key policy | f_hat = 0 |
 | Synthetic seeds | [0, 1, 2] |
 | Real seeds | [0] |
@@ -52,7 +54,7 @@ These are final. Do not change them. If you believe a value needs to change, fla
 
 | Factor | Values | Count |
 |---|---|---|
-| Datasets (synthetic) | uniform, zipf, mixture | 3 |
+| Datasets (synthetic) | uniform, zipf_1_1, zipf_1_3, mixture | 4 |
 | Datasets (real) | kosarak, retail | 2 |
 | Algorithms | CMS, CMS-CU, CS, MG, SS | 5 |
 | Memory budgets | 500, 2000, 8000 | 3 |
@@ -60,11 +62,11 @@ These are final. Do not change them. If you believe a value needs to change, fla
 | Seeds (real) | 0 | 1 |
 
 Expected rows in `results/results.csv`:
-- Synthetic: 3 × 3 × 5 × 3 = **135**
+- Synthetic: 4 × 3 × 5 × 3 = **180**
 - Real: 2 × 3 × 5 × 1 = **30**
-- **Total: 165 rows**
+- **Total: 210 rows**
 
-Use this as a sanity check in Stage 4.
+> ⚠️ Row count updated from 165 → 210 because Zipf was split into two named datasets (zipf_1_1 and zipf_1_3). Use 210 as the Stage 4 sanity check.
 
 ---
 
@@ -76,6 +78,7 @@ project/
   CLAUDE.md
   PLAN.md
   NOTES.md
+  COMMIT_CONVENTIONS.md
   requirements.txt
   configs/
     main.yaml
@@ -92,32 +95,34 @@ project/
       parsers.py          → dataset parsers
       datasets.py         → unified dataset loader
     metrics/
-      topk.py             → precision_at_k(), overlap_at_k()
-      point_queries.py    → mae(), relative_error()
-      skew.py             → compute_skew(), rank_frequency_plot()
+      topk.py             → precision_at_k(), recall_at_k(), overlap_at_k()
+      point_queries.py    → mae(), relative_error(), build_query_set()
+      skew.py             → compute_skew(), plot_rank_frequency(), plot_frequency_histogram()
     utils/
-      hashing.py          → hash utilities for sketches
+      hashing.py          → HashFamily
       timing.py           → set_seed(), measure_throughput()
       io.py               → log_result()
   experiments/
-    smoke_test.py         → Stage 1 DoD test
+    smoke_test.py         → Stage 1 DoD test (do not modify)
     run_all.py            → full grid runner (Stage 4)
     make_plots.py         → figure generator (Stage 5)
+    characterize_data.py  → dataset stats + skew plots (Stage 3)
   data/
-    raw/                  → downloaded datasets (gitignored if large)
-    processed/            → parsed streams
+    raw/                  → downloaded datasets (gitignored)
+      README.md           → download instructions
+    processed/            → parsed streams (committed)
   results/
     results.csv           → one row per run
     dataset_stats.csv     → F0/F1/F2/skew per dataset
     winners.csv           → best algo per dataset × budget
   plots/
-    skew_hist_*.png         → frequency histogram per dataset (NEW — professor requirement)
-    skew_loglog_*.png       → rank-frequency log-log plot per dataset
+    skew_hist_*.png       → frequency histogram per dataset
+    skew_loglog_*.png     → rank-frequency log-log plot per dataset
     fig_1_precision.png
     fig_2_overlap.png
     fig_3_mae.png
     fig_4_throughput.png
-    fig_5_memory_bytes.png  → actual bytes comparison across algos (NEW — professor requirement)
+    fig_5_memory_bytes.png
   report/
     Report_Template_EN.md
     Task_Plan_EN.md
@@ -139,15 +144,17 @@ F0, F1, F2, skew,
 timestamp
 ```
 
+**Total: 25 columns.** This is the canonical schema. Do not rename or reorder.
+
 **Column notes (professor requirements — non-negotiable):**
 - `recall_at_k`: |T_true ∩ T_hat| / k — added per professor feedback
 - `mae_*` and `rel_err_*`: mandatory separate reporting per bucket (heavy / mid / rare) — not aggregated
-- `memory_counters`: M as #counters/entries (the fair-comparison unit)
-- `memory_bytes`: approximate actual bytes used including auxiliary structures (keys for MG/SS, Counter for sketches) — required per professor feedback on memory fairness
+- `memory_counters`: M as #counters/entries
+- `memory_bytes`: actual bytes including auxiliary structures (keys for MG/SS, Counter for sketches)
 
 ---
 
-## Report writing schedule (for your awareness — PM manages this)
+## Report writing schedule (PM manages this)
 
 | Stage | What gets written |
 |---|---|
@@ -156,8 +163,6 @@ timestamp
 | 4 | §3 experimental setup, §4.0 dataset stats table |
 | 5 | §4 Results, §5 Discussion, §0 Abstract + Executive Summary |
 | 6 | §1 Intro, §2.3–2.4 Background algos, §6 Conclusions, Appendices, Hebrew translation |
-
-You will be asked to provide data, numbers, and plots at the right times. The PM writes the report.
 
 ---
 
