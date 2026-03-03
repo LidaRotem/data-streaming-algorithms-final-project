@@ -6,6 +6,24 @@ Maintained by: PM
 
 ---
 
+## 0. Environment (read first)
+- **Always activate the virtual environment before running any Python command:**
+  ```powershell
+  # Windows PowerShell
+  .venv\Scripts\Activate.ps1
+
+  # Windows CMD
+  .venv\Scripts\activate.bat
+
+  # macOS / Linux
+  source .venv/bin/activate
+  ```
+- You should see `(.venv)` at the start of your prompt before proceeding.
+- All `python` and `pytest` commands assume the venv is active.
+- Never install packages outside the venv.
+
+---
+
 ## 1. General principles
 - **Clarity over cleverness.** This is a research project. Code must be readable by a human reviewer and reproducible by another agent.
 - **No hardcoded parameters.** Every experiment parameter comes from `configs/main.yaml`. If it's not in the config, ask the PM before adding it.
@@ -51,6 +69,7 @@ class AlgorithmName:
     def query(self, item) -> float: ...
     def topk(self, k: int) -> list: ...  # returns [(item, count), ...]
     def reset(self) -> None: ...
+    def memory_bytes(self) -> int: ...   # actual bytes including aux structures
 ```
 
 - `M` is always the memory budget in #counters or #entries. No exceptions.
@@ -71,12 +90,14 @@ class AlgorithmName:
 - Every experiment run appends exactly one row to `results/results.csv`.
 - Never overwrite `results.csv` — always append.
 - All required columns must be present in every row. Use `None` or `NaN` for metrics not yet computed, but the column must exist.
-- Required columns (do not rename these):
+- **Canonical 25-column schema (do not rename or reorder):**
   ```
   run_id, dataset, algorithm, M, budget_label, seed, k,
-  precision_at_k, overlap_at_k,
+  precision_at_k, recall_at_k, overlap_at_k,
   mae_heavy, mae_mid, mae_rare,
+  rel_err_heavy, rel_err_mid, rel_err_rare,
   updates_per_sec, query_ms,
+  memory_counters, memory_bytes,
   F0, F1, F2, skew,
   timestamp
   ```
@@ -141,13 +162,15 @@ except:
 ---
 
 ## 11. Reproducibility checklist (before handing back any stage)
+- [ ] Venv is active — `(.venv)` visible in prompt.
 - [ ] `python experiments/smoke_test.py --config configs/main.yaml` runs clean.
 - [ ] No hardcoded parameters outside `configs/main.yaml`.
 - [ ] All new dependencies added to `requirements.txt`.
 - [ ] All new files follow naming conventions.
 - [ ] Seed is set and stored for every run.
-- [ ] `results/results.csv` has the correct columns.
+- [ ] `results/results.csv` has all 25 canonical columns.
 - [ ] No commented-out dead code left in files.
+- [ ] `pytest tests/` passes with 0 failures.
 
 ---
 
