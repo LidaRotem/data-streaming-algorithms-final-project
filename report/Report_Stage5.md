@@ -15,7 +15,7 @@ the key space may be enormous, the stream cannot be rewound, and memory is stric
 We compare two algorithm families across 6 datasets and 3 memory budgets:
 hash-based sketches (Count-Min Sketch, CMS with Conservative Update, Count-Sketch)
 and counter-based summaries (Misra–Gries, Space-Saving).
-Algorithms were evaluated on Top-k quality (Precision@k, Overlap@k),
+Algorithms were evaluated on Top-k quality (Precision@k, Recall@k, Overlap@k),
 point-query error (MAE and relative error for heavy/mid/rare frequency buckets),
 and throughput (updates/sec, query latency).
 On high-skew streams, MG and SS dominate: on Zipf α=1.3 (skew=0.094), both achieve Precision@k=1.000
@@ -242,7 +242,7 @@ Before running experiments, we expected:
 
 ### 3.1 Environment & Reproducibility
 
-- **Hardware:** Windows 11, standard laptop CPU
+- **Hardware:** Windows 11, multi-core CPU (28 workers used in parallel experiments)
 - **Software:** Python 3.10+, NumPy, Pandas, Matplotlib, PyYAML
 - **Seeds:** global seed=42; per-run seeds 0,1,2 for synthetic; seed=0 for real datasets
 - **How to run:**
@@ -260,7 +260,7 @@ M is defined uniformly as a **number of counters or entries**:
 - **Summaries (MG, SS):** M = m entries (key-count pairs).
 
 This ensures all algorithms receive the same number of "slots." A secondary comparison by actual
-`memory_bytes` is shown in Fig. 5 — sketches use fixed numpy arrays (~1MB at all budgets);
+`memory_bytes` is shown in Fig. 5 — sketches use a fixed-depth numpy array whose size scales with M (~1.03 MB at M=500 to ~1.09 MB at M=8000);
 SS uses Python dict entries with string keys and grows to >30MB at M=8000 due to key overhead.
 
 ### 3.3 Data
@@ -388,8 +388,8 @@ Precision@k equal to or greater than any sketch at every budget:
 | Dataset | Skew | MG@500 | SS@500 | Best sketch@500 |
 |---|---|---|---|---|
 | uniform | 0.0001 | 0.013 | 0.013 | 0.030 (CMS-CU) |
-| retail | 0.0065 | 0.560 | 0.560 | 0.270 (CMS-CU) |
 | mixture | 0.0050 | 0.507 | 0.510 | 0.440 (CMS-CU) |
+| retail | 0.0065 | 0.560 | 0.560 | 0.270 (CMS-CU) |
 | kosarak | 0.0128 | 0.780 | 0.790 | 0.350 (CMS-CU) |
 | zipf_1_1 | 0.034 | 0.997 | 0.997 | 0.510 (CMS-CU) |
 | zipf_1_3 | 0.094 | 1.000 | 1.000 | 0.523 (CMS-CU) |
@@ -469,6 +469,12 @@ The following rules are derived directly from the data:
 
 - Higher M → better precision — confirmed for all algorithms. The improvement rate is steeper
   for sketches (error ∝ 1/w) than for summaries (already good at small M on skewed data).
+
+- Count-Sketch's zero-mean estimator behaved as expected: CS achieved lower relative error
+  on rare items than CMS (43.5% vs 335.9%), confirming the unbiased estimator advantage on
+  low-frequency items. However, CS's median estimator produced higher variance than CMS's
+  minimum estimator for heavy items, making CS the weakest sketch for Top-k quality across
+  all datasets — consistent with the expectation that variance dominates when heavy items are present.
 
 **Surprises:**
 
