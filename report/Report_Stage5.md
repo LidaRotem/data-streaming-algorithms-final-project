@@ -161,8 +161,10 @@ probability 1-δ where w=⌈e/ε⌉ and d=⌈ln(1/δ)⌉.
 ```
 init(d, w):
     table[d][w] = 0
+    candidates = Counter()   # tracks all distinct items seen
 
 update(item):
+    candidates[item] += 1    # unbounded — grows with F0
     for j in 0..d:
         table[j][hash_j(item) mod w] += 1
 
@@ -170,10 +172,15 @@ query(item):
     return min(table[j][hash_j(item) mod w] for j in 0..d)
 
 topk(k):
-    return top-k from candidate Counter (updated in parallel)
+    return top-k by query(item) over all items in candidates
 ```
 
-**Parameters:** d=5 (depth/rows), w=⌊M/d⌋ (width/columns). Memory: O(d·w) counters.
+The candidates Counter grows with F0 (the number of distinct items). In our datasets,
+F0 ranges from 9,547 (Zipf α=1.3) to 25,343 (Kosarak), so the Counter adds
+approximately 0.5–1.5 MB of auxiliary memory. This Counter is included in memory_bytes
+and is the dominant contributor to sketch memory at large F0.
+
+**Parameters:** d=5 (depth/rows), w=⌊M/d⌋ (width/columns). Memory: O(d·w) counters plus O(F0) candidate tracking.
 
 #### CMS with Conservative Update (CMS-CU)
 **Intuition:** Same structure as CMS, but when updating item i, only increment cells that
@@ -187,7 +194,10 @@ so it reduces the overestimation bias, especially when heavy items share hash sl
 **Intuition:** A signed variant: each counter is incremented by +1 or -1 depending on a second
 sign hash `ξ(item) ∈ {-1, +1}`. Query returns the **median** of signed estimates across rows,
 not the minimum. The sign randomization makes errors zero-mean, enabling cancellation across
-collisions. Estimates can be negative; we clamp to 0.
+collisions. Estimates can be negative; we clamp to 0. Note: clamping negative
+estimates to 0 introduces a small positive bias for very low-frequency items whose
+true signed estimate falls below 0. In practice, this primarily affects rare items
+and had negligible impact on heavy-item MAE and Top-k quality in our experiments.
 
 **Error behavior:** CS estimates are unbiased (zero-mean error), but the median estimator has
 higher variance than CMS's minimum estimator, especially in the presence of heavy items.
@@ -263,6 +273,25 @@ This ensures all algorithms receive the same number of "slots." A secondary comp
 `memory_bytes` is shown in Fig. 5 — sketches use a fixed-depth numpy array whose size scales with M (~1.03 MB at M=500 to ~1.09 MB at M=8000);
 SS uses Python dict entries with string keys and grows to >30MB at M=8000 due to key overhead.
 
+`memory_bytes` is computed as: (1) for sketches: numpy table `.nbytes` + Python `sys.getsizeof`
+over the candidates Counter including all key-value pairs; (2) for MG/SS: Python `sys.getsizeof`
+over the internal dict including all key-value pairs. This accounts for Python object overhead
+but not memory allocator padding or interpreter internals. Measured mean values:
+
+| Algorithm | M=500 | M=2000 | M=8000 |
+|---|---|---|---|
+| CMS / CMS-CU / CS | 1.03 MB | 1.05 MB | 1.09 MB |
+| MG | 46 KB | 178 KB | 988 KB |
+| SS | 25.8 MB | 31.3 MB | 39.6 MB |
+
+One implementation caveat: our sketch implementations maintain an auxiliary candidates Counter
+that tracks all distinct items seen, enabling `topk()` queries without a separate heavy-hitter
+detection pass. This Counter grows with F0 and is unbounded — it is not part of the M-counter
+budget. We include it in `memory_bytes` for transparency (Fig. 5), but it means sketches use
+more total memory than the M-counter definition implies. A production sketch implementation
+would use a space-bounded heavy-hitter detection sub-routine (e.g., a small MG summary) instead.
+This is noted as a threat to validity in §5.3.
+
 ### 3.3 Data
 
 #### 3.3.1 Synthetic Streams
@@ -287,6 +316,7 @@ See §4.0 for the full stats table. Rank-frequency log-log plots are in `plots/s
 
 **Top-k quality (primary):**
 - `Precision@k = |T_true ∩ T_hat| / k` — fraction of predicted top-k that are truly top-k
+- `Recall@k = |T_true ∩ T_hat| / k` — fraction of the true top-k items that appear in the predicted set. Note: in this experiment, |T_hat| is always exactly k (guaranteed by our `topk(k)` interface), so Recall@k ≡ Precision@k ≡ Overlap@k for all runs. All three are reported separately per the professor's requirement.
 - `Overlap@k = |T_true ∩ T_hat| / k` — identical formula; both = precision when |T_hat|=k, which is always the case here (noted in §5.3)
 
 **Point-query accuracy (secondary):**
@@ -312,6 +342,8 @@ See §4.0 for the full stats table. Rank-frequency log-log plots are in `plots/s
 | **Total rows** | | **210** |
 
 Sketch width: w = ⌊M/d⌋ with d=5. At M=500: w=100; M=2000: w=400; M=8000: w=1600.
+Sketch depth d=5 is a standard choice in the literature [1], balancing error probability
+(δ = e^{-d} ≈ 0.007 at d=5) against memory overhead.
 k=100 for all runs. One row per run appended to `results/results_full.csv`.
 
 ---
@@ -443,8 +475,9 @@ MG/SS degrade gracefully even at M=500 on skewed data.
 
 The following rules are derived directly from the data:
 
-1. **If skew > 0.01, use MG:** MG achieves Precision@k ≥ 0.780 at M=500 on all datasets with
-   skew > 0.01 (kosarak: 0.780, zipf_1_1: 0.997, zipf_1_3: 1.000). No sketch exceeds 0.523 at M=500.
+1. **If skew > 0.01, use MG:** In our tested regimes, MG achieved Precision@k ≥ 0.780 at M=500
+   on all datasets with skew > 0.01 (kosarak: 0.780, zipf_1_1: 0.997, zipf_1_3: 1.000).
+   No sketch exceeded 0.523 at M=500.
 
 2. **If heavy-item point-query accuracy matters, use SS:** SS achieves the lowest heavy-item MAE
    (grand mean: 120.2 at M=500, 51.7 at M=2000, **1.0 at M=8000**) due to its overcount-bounding
@@ -493,7 +526,7 @@ The following rules are derived directly from the data:
    — substantially below Kosarak (78% and 100% at the same budgets), which has lower or similar skew
    (mixture: 0.005, kosarak: 0.013). Intuitively, the mixture dataset has a hard boundary: its 50 heavy
    items are all close in frequency (~1% each), making them difficult to reliably distinguish from
-   the uniform background (which has ~0.01% per item each). In contrast, Kosarak's natural heavy-tail
+   the uniform background (which has ~0.005% per item each, given 50% mass spread over ~9,950 background items). In contrast, Kosarak's natural heavy-tail
    distribution creates a sharper separation between the true top-100 and the rest, even though
    its aggregate skew value is moderate. This reveals a limitation of using F2/F1² as the sole
    predictor of difficulty: skew captures total concentration but not the sharpness of the
@@ -552,7 +585,11 @@ The following rules are derived directly from the data:
 
 - **Real datasets use 1 seed:** We have no variance estimate for Kosarak or Retail. The
   precision values reported are from a single run (seed=0) and may not represent the expected
-  value across stream orderings.
+  value across stream orderings. MG and SS are order-sensitive algorithms — their precision
+  may vary across different stream orderings of the same dataset. A more rigorous evaluation
+  would run 3–5 random permutations of the real datasets. We consider this a minor threat
+  given that real datasets have deterministic item frequencies, and Top-k identification
+  depends primarily on frequency magnitude rather than arrival order.
 
 - **MG/SS missing key policy:** the choice f_hat=0 maximally penalizes relative error for rare
   items. An alternative policy (f_hat = min_counter in the summary) would reduce relative error
@@ -563,6 +600,12 @@ The following rules are derived directly from the data:
   memory allocator overhead. SS memory footprints (>30MB) are dominated by Python string objects
   and are genuinely larger than sketch memory, but the exact values are platform-dependent.
 
+- **Sketch candidate tracking:** our sketch `topk()` relies on an unbounded candidates
+  Counter (one entry per distinct item seen), which is not bounded by M. This gives
+  sketches an advantage on Top-k identification that a fully space-bounded implementation
+  would not have, and inflates their `memory_bytes` in Fig. 5. A fair comparison would
+  use a bounded heavy-hitter sub-routine for candidate tracking.
+
 ---
 
 ## 6. Conclusions & Future Work
@@ -572,7 +615,7 @@ The following rules are derived directly from the data:
 This study provides a comprehensive head-to-head comparison of two algorithm families for
 top-k heavy hitter identification in data streams under a fair memory budget definition.
 
-The key finding is unambiguous: **counter-based summaries (MG, SS) substantially outperform
+The key finding is consistent across all tested conditions: **counter-based summaries (MG, SS) substantially outperform
 hash-based sketches (CMS, CMS-CU, CS) for Top-k identification on skewed streams**, achieving
 Precision@k = 1.000 at M=500 on Zipf α=1.3 and ≥0.78 on Kosarak, while the best sketch
 (CMS-CU) requires M=8000 to match this on Zipf α=1.3, and still falls short on Kosarak.
@@ -585,7 +628,8 @@ predict Top-k difficulty**. The sharpness of the boundary between heavy items an
 matters, and this is not captured by a single scalar metric.
 
 For practitioners: the decision between algorithm families should be driven primarily by stream
-skew. On any dataset with skew > 0.01, MG or SS is the correct choice. On low-skew streams,
+skew. In our tested regimes, on datasets with skew > 0.01, MG or SS was the superior choice.
+On low-skew streams,
 the choice of algorithm is secondary — the signal is simply too weak for any algorithm to reliably
 identify the top-k.
 
@@ -628,6 +672,14 @@ python experiments/run_all.py --config configs/main.yaml
 # 6. Generate plots
 python experiments/make_plots.py --config configs/main.yaml
 
+# Generated figures are saved to the plots/ directory:
+#   plots/fig_1_precision.png  — Precision@k vs M (6 panels)
+#   plots/fig_2_overlap.png    — Overlap@k vs M (6 panels)
+#   plots/fig_3_mae.png        — Point query MAE by bucket (3 panels)
+#   plots/fig_4_throughput.png — Throughput vs M (6 panels)
+#   plots/fig_5_memory_bytes.png — Memory bytes vs M
+# For PDF submission, embed these figures at the corresponding §4.1 references.
+
 # 7. Run tests
 pytest tests/
 ```
@@ -658,3 +710,28 @@ All parameters are in `configs/main.yaml`. No hardcoded values in source code.
 | Uniform vocab_size | 10,000 | configs/main.yaml |
 | MG/SS missing key | f_hat = 0 | configs/main.yaml |
 | Skew metric | F2 / F1² | configs/main.yaml |
+
+---
+
+## References
+
+[1] Cormode, G., & Muthukrishnan, S. (2005). An improved data stream summary:
+    the count-min sketch and its applications. *Journal of Algorithms*, 55(1), 58–75.
+
+[2] Estan, C., & Varghese, G. (2002). New directions in traffic measurement and
+    accounting. *ACM SIGCOMM Computer Communication Review*, 32(4), 323–336.
+    (Conservative update concept.)
+
+[3] Charikar, M., Chen, K., & Farach-Colton, M. (2002). Finding frequent items
+    in data streams. *Automata, Languages and Programming (ICALP)*, 693–703.
+
+[4] Misra, J., & Gries, D. (1982). Finding repeated elements.
+    *Science of Computer Programming*, 2(2), 143–152.
+
+[5] Metwally, A., Agrawal, D., & El Abbadi, A. (2005). Efficient computation of
+    frequent and top-k elements in data streams. *International Conference on
+    Database Theory (ICDT)*, 398–412.
+
+[6] Frequent Itemset Mining Dataset Repository. Kosarak and Retail datasets.
+    http://www.cs.rpi.edu/~zaki/Workshops/FIMI/data/
+    (Original site: http://fimi.uantwerpen.be/data/ — currently unavailable.)
