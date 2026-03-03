@@ -15,16 +15,14 @@ Given the same memory budget, how does **Top-k heavy hitters** identification co
 |---|---|---|
 | 0 — Lock decisions | ✅ DONE (PM) | Nothing — decisions already locked |
 | 1 — Repo skeleton | ✅ DONE | All 15 rows in results.csv, clean smoke test |
-| 2 — Algorithms + tests | ✅ DONE | 50/50 tests pass, all 5 algos implemented, QA passed |
-| 3 — Data + skew | ✅ DONE | All 6 streams generated, stats CSV, 12 plots |
-| 4 — Full experiment grid | ✅ DONE | 210 rows, 25 cols, results_full.csv complete |
-| 5 — Plot generation | ⬜ Awaiting Stage 4 | Wait for PM briefing |
+| 2 — Algorithms + tests | ✅ DONE | 50/50 tests pass, all 5 algos implemented |
+| 3 — Data + skew | ✅ DONE | 12 plots, dataset_stats.csv, all 6 processed streams |
+| 4 — Full experiment grid | ✅ DONE | 210 rows in results_full.csv, all metrics valid |
+| 5 — Plot generation + report §4/§5 | ⬜ Next | Wait for PM briefing |
 | 6 — Report polish + translate | ⬜ Awaiting Stage 5 | Wait for PM briefing |
 | 7 — Submission packaging | ⬜ Awaiting Stage 6 | Wait for PM briefing |
 
-**Current instruction: Stage 4 DONE. Do not begin Stage 5 without a new briefing from the PM.**
-
-> ⚠️ **Professor feedback incorporated [2026-03-02]:** recall@k added, point-query bucket reporting hardened, memory_bytes now required, histogram added to skew plots. See NOTES.md for full detail.
+**Current instruction: Stages 1–4 complete. Do not begin Stage 5 without a new briefing from the PM.**
 
 ---
 
@@ -40,7 +38,7 @@ Given the same memory budget, how does **Top-k heavy hitters** identification co
 | Summary size m | M entries — computed at runtime |
 | Real datasets | Kosarak + Retail |
 | N_max (truncation) | 1,000,000 |
-| Skew metric | F2 / F1² + rank-frequency log-log plot + frequency histogram |
+| Skew metric | F2 / F1² + rank-frequency log-log plot |
 | MG/SS missing key policy | f_hat = 0 |
 | Synthetic seeds | [0, 1, 2] |
 | Real seeds | [0] |
@@ -50,7 +48,7 @@ These are final. Do not change them. If you believe a value needs to change, fla
 
 ---
 
-## Full experiment grid (for awareness)
+## Full experiment grid
 
 | Factor | Values | Count |
 |---|---|---|
@@ -61,12 +59,12 @@ These are final. Do not change them. If you believe a value needs to change, fla
 | Seeds (synthetic) | 0, 1, 2 | 3 |
 | Seeds (real) | 0 | 1 |
 
-Expected rows in `results/results.csv`:
+Expected rows in `results/results_full.csv`:
 - Synthetic: 4 × 3 × 5 × 3 = **180**
 - Real: 2 × 3 × 5 × 1 = **30**
-- **Total: 210 rows**
+- **Total: 210 rows** ✅ confirmed
 
-> ⚠️ Row count updated from 165 → 210 because Zipf was split into two named datasets (zipf_1_1 and zipf_1_3). Use 210 as the Stage 4 sanity check.
+Note: zipf was split into two datasets (zipf_1_1 α=1.1 and zipf_1_3 α=1.3) — this is why the count is 210 not 165.
 
 ---
 
@@ -78,8 +76,8 @@ project/
   CLAUDE.md
   PLAN.md
   NOTES.md
-  COMMIT_CONVENTIONS.md
   requirements.txt
+  Makefile
   configs/
     main.yaml
   src/
@@ -91,38 +89,37 @@ project/
       space_saving.py     → class SpaceSaving
       ground_truth.py     → class GroundTruth
     data/
-      synthetic.py        → generate_stream()
-      parsers.py          → dataset parsers
-      datasets.py         → unified dataset loader
+      synthetic.py        → generate_stream() — generator
+      parsers.py          → dataset parsers — generators
+      datasets.py         → unified dataset loader — returns generator
     metrics/
       topk.py             → precision_at_k(), recall_at_k(), overlap_at_k()
       point_queries.py    → mae(), relative_error(), build_query_set()
-      skew.py             → compute_skew(), plot_rank_frequency(), plot_frequency_histogram()
+      skew.py             → compute_stats(), plot_rank_frequency(), plot_frequency_histogram()
     utils/
-      hashing.py          → HashFamily
+      hashing.py          → hash utilities for sketches
       timing.py           → set_seed(), measure_throughput()
       io.py               → log_result()
   experiments/
-    smoke_test.py         → Stage 1 DoD test (do not modify)
-    run_all.py            → full grid runner (Stage 4)
+    smoke_test.py         → smoke test (15 rows)
+    run_all.py            → full grid runner — 210 runs, ProcessPoolExecutor
+    characterize_data.py  → dataset characterization
     make_plots.py         → figure generator (Stage 5)
-    characterize_data.py  → dataset stats + skew plots (Stage 3)
   data/
     raw/                  → downloaded datasets (gitignored)
-      README.md           → download instructions
-    processed/            → parsed streams (committed)
+    processed/            → parsed streams (6 files)
   results/
-    results.csv           → one row per run
-    dataset_stats.csv     → F0/F1/F2/skew per dataset
-    winners.csv           → best algo per dataset × budget
+    results_full.csv      → 210 rows, all experiment results
+    dataset_stats.csv     → F0/F1/F2/skew per dataset (6 rows)
+    winners.csv           → best algo per dataset × budget (Stage 5)
   plots/
-    skew_hist_*.png       → frequency histogram per dataset
-    skew_loglog_*.png     → rank-frequency log-log plot per dataset
-    fig_1_precision.png
-    fig_2_overlap.png
-    fig_3_mae.png
-    fig_4_throughput.png
-    fig_5_memory_bytes.png
+    skew_hist_*.png       → 6 frequency histograms (Stage 3 ✅)
+    skew_loglog_*.png     → 6 rank-frequency log-log plots (Stage 3 ✅)
+    fig_1_precision.png   → (Stage 5)
+    fig_2_overlap.png     → (Stage 5)
+    fig_3_mae.png         → (Stage 5)
+    fig_4_throughput.png  → (Stage 5)
+    fig_5_memory_bytes.png → (Stage 5)
   report/
     Report_Template_EN.md
     Task_Plan_EN.md
@@ -144,17 +141,16 @@ F0, F1, F2, skew,
 timestamp
 ```
 
-**Total: 25 columns.** This is the canonical schema. Do not rename or reorder.
-
 **Column notes (professor requirements — non-negotiable):**
 - `recall_at_k`: |T_true ∩ T_hat| / k — added per professor feedback
-- `mae_*` and `rel_err_*`: mandatory separate reporting per bucket (heavy / mid / rare) — not aggregated
+- `overlap_at_k`: |T_true ∩ T_hat| / k — normalised to [0,1]
+- `mae_*` and `rel_err_*`: mandatory separate reporting per bucket (heavy / mid / rare)
 - `memory_counters`: M as #counters/entries
-- `memory_bytes`: actual bytes including auxiliary structures (keys for MG/SS, Counter for sketches)
+- `memory_bytes`: actual bytes including auxiliary structures
 
 ---
 
-## Report writing schedule (PM manages this)
+## Report writing schedule
 
 | Stage | What gets written |
 |---|---|
