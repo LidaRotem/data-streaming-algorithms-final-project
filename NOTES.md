@@ -122,7 +122,38 @@ b586faa chore: add gitignore, commit conventions, CLAUDE.md
 - `data/raw/` gitignored — raw files are large, download sources documented in `data/raw/README.md`.
 
 ### Stage 3 handback
-`[pending]`
+`[2026-03-03] [Coding Agent] Stage 3 complete. All 8 DoD items confirmed ✅. 50/50 tests pass, smoke test clean.`
+
+**DoD checklist:**
+- ✅ data/processed/ contains uniform.txt, zipf_1_1.txt, zipf_1_3.txt, mixture.txt, kosarak.txt, retail.txt
+- ✅ results/dataset_stats.csv exists with 6 rows and correct columns (dataset, N, F0, F1, F2, skew)
+- ✅ plots/ contains skew_loglog_*.png and skew_hist_*.png for all 6 datasets (12 plots total)
+- ✅ python experiments/characterize_data.py --config configs/main.yaml runs clean
+- ✅ pytest tests/ — 50/50 passed, 0 regressions
+- ✅ No hardcoded paths — all from config (data_cfg, processed_dir, raw_dir, N_max)
+- ✅ data/raw/README.md exists with download instructions (http://www.cs.rpi.edu/~zaki/Workshops/FIMI/data/)
+- ✅ configs/main.yaml updated with data: section
+
+**Dataset summary (stdout from characterize_data.py):**
+```
+Dataset              N        F0            F1                  F2        Skew
+uniform      1,000,000    10,000     1,000,000         100,987,506    0.000101
+zipf_1_1     1,000,000     9,997     1,000,000      34,016,622,264    0.034017
+zipf_1_3     1,000,000     9,547     1,000,000      94,042,924,048    0.094043
+mixture      1,000,000    10,000     1,000,000       5,015,827,892    0.005016
+kosarak      1,000,000    25,343     1,000,000      12,806,120,190    0.012806
+retail         908,576    16,470       908,576       5,364,936,090    0.006499
+```
+
+**Decisions made (flag for PM):**
+- kosarak.dat and retail.dat were gzip-compressed (not plain text). Parser auto-detects via magic bytes. No functional impact on results.
+- retail.dat flattened to 908,576 items (< N_max=1,000,000) — the file contains only ~88K transactions totalling ~908K items. All items retained; no truncation needed.
+- characterize_data.py **overwrites** dataset_stats.csv on each run (writes fresh header + 6 rows). This is correct: it is a characterization script, not an append-only results logger. PM should confirm this is acceptable vs. append behavior.
+- `compute_stats()` added to skew.py alongside `compute_skew()` — briefing specified this function. Both co-exist cleanly; `compute_skew()` remains for backward compatibility with smoke_test.py.
+- datasets.py caches processed streams — if processed/*.txt already exists it loads from disk. Re-running characterize_data.py uses the cache, so synthetic generation is seeded correctly only on first run (global_seed=42). Stage 4 run_all.py must generate its own streams with the correct per-run seed, NOT rely on cached files.
+
+**Blockers / questions for Stage 4:**
+- None blocking. Stage 4 can begin with new PM briefing.
 
 ### Stage 4 handback
 `[pending]`

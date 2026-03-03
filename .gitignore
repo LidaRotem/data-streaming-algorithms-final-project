@@ -5,12 +5,15 @@ __pycache__/
 *.pyo
 .env
 
-# Data — raw files are large, do not commit
-data/raw/
+# Data — raw files are large, do not commit; README is tracked
+data/raw/*.dat
+data/raw/*.gz
 
-# Results — do not commit generated outputs
-results/
-plots/
+# Results — track stats and winners CSVs; do not track run logs
+results/results.csv
+results/winners.csv
+
+# Plots are tracked (skew plots, figure outputs)
 
 # OS
 .DS_Store
