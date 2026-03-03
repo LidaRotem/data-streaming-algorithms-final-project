@@ -338,6 +338,8 @@ heavy items while retail has natural distribution, leading to different algorith
 
 **Fig. 1 — Precision@k vs Memory Budget** (`plots/fig_1_precision.png`)
 
+![Fig. 1 — Precision@k vs Memory Budget](../plots/fig_1_precision.png)
+
 Six panels (one per dataset) show mean Precision@k (y-axis, [0,1]) vs M on a log scale (x-axis).
 Error bars show std across seeds for synthetic datasets.
 
@@ -348,10 +350,14 @@ and SS break 35%, highlighting that precision is fundamentally limited by skew, 
 
 **Fig. 2 — Overlap@k vs Memory Budget** (`plots/fig_2_overlap.png`)
 
+![Fig. 2 — Overlap@k vs Memory Budget](../plots/fig_2_overlap.png)
+
 Structurally identical to Fig. 1 (overlap@k = precision@k when |T̂|=k, which is always the case
 here). Generated as a separate figure per template requirements. See note in figure caption.
 
 **Fig. 3 — Point Query MAE by Frequency Bucket** (`plots/fig_3_mae.png`)
+
+![Fig. 3 — Point Query MAE by Frequency Bucket](../plots/fig_3_mae.png)
 
 Three panels: heavy (top-100), mid (~rank 500), rare (bottom 20%) items. y-axis is log-scale MAE,
 averaged across all datasets and seeds. x-axis is M on log scale.
@@ -363,6 +369,8 @@ Top-k quality, because its zero-mean estimator avoids the systematic bias of CMS
 
 **Fig. 4 — Throughput vs Memory Budget** (`plots/fig_4_throughput.png`)
 
+![Fig. 4 — Throughput vs Memory Budget](../plots/fig_4_throughput.png)
+
 Six panels showing updates/sec (log scale) vs M (log scale). MG consistently reaches 1.2M–2.6M
 updates/sec across all datasets; sketches plateau around 65K–150K/s. SS is intermediate at
 ~450K–1M/s depending on the dataset (faster on Zipf, slower on Kosarak due to larger key object size).
@@ -372,6 +380,8 @@ slightly with budget (more counters to hash for sketches). CS is slower than exp
 due to per-update Counter management for candidate tracking.
 
 **Fig. 5 — Actual Memory Usage vs Budget M** (`plots/fig_5_memory_bytes.png`)
+
+![Fig. 5 — Actual Memory Usage vs Budget M](../plots/fig_5_memory_bytes.png)
 
 A single panel showing mean memory_bytes vs M for each algorithm.
 
