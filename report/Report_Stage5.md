@@ -230,9 +230,11 @@ query(item):
 (collecting keys with count ≤ 0 in a separate list before deleting them to avoid mutation
 during iteration). Despite being O(m) per eviction event, MG achieves ~1.96M updates/sec
 — 15× faster than CMS — because eviction is rare on skewed streams (most updates hit the
-`item in counters` branch) and the small dict (47 KB at M=500) fits entirely in CPU L2/L3
-cache, making the common-case dict lookup much faster than CMS's 5-hash + 5-array-index
-update path (plus a candidates Counter increment per update).
+`item in counters` branch). The throughput gap reflects operation-count asymmetry: MG's
+common-case update is a single Python dict increment; CMS performs d=5 hash computations,
+5 numpy array writes, and one Counter update per item — approximately 7× more operations.
+The O(m) eviction scan in MG is rare on skewed streams where most updates hit
+already-tracked items.
 
 **Memory:** O(m) key-count pairs. m = M in this experiment. Key overhead scales with key size.
 
@@ -286,6 +288,14 @@ g_i(x) = 2 · ((c_i · x + e_i) mod p mod 2) − 1 → {−1, +1}, with independ
 per row. All hash parameters are generated once at construction time from the provided seed,
 ensuring fully reproducible results given the same seed value.
 
+Implementation note: the hash() call accepts integer or string items
+(src/utils/hashing.py). All item keys in this experiment are Python integers
+(parsers.py yields int(token); synthetic generators emit integers). For Python
+integers hash(n) == n, which is deterministic regardless of PYTHONHASHSEED.
+Reproducibility holds across processes and machines for all datasets used here.
+Users adapting this code to string-keyed streams should fix PYTHONHASHSEED=0
+or replace hash(item) with a deterministic integer mapping.
+
 ### 3.2 Fairness: Defining "Same Memory Budget"
 
 M is defined uniformly as a **number of counters or entries**:
@@ -321,6 +331,14 @@ Approximate memory breakdown at M=500 (mean across datasets):
 The candidates Counter is the dominant sketch memory component at all budgets.
 SS memory is dominated by accumulated stale heap tuples (see §4.1 Fig. 5 notes).
 
+For Space-Saving, memory_bytes() sums sys.getsizeof over all entries in
+self._heap (including stale tuples) plus the internal dict. Since
+heapq.heappush() is called on every update without cleanup, self._heap grows
+to O(N) entries after N stream updates — this drives the 27–42 MB in Fig. 5,
+not the M active dict entries. This is an implementation artifact: a
+production implementation with periodic heap compaction would reduce
+memory_bytes to O(M log M).
+
 Our memory model has two components: (1) the M-slot budget (sketch table or summary entries),
 which is the primary comparison axis; and (2) an auxiliary candidates Counter used by sketch
 implementations to enable `topk()` queries, which grows with F0 and is not bounded by M.
@@ -332,7 +350,10 @@ This is noted as a threat to validity in §5.3.
 
 **Bounded-candidate ablation (CMS-B):** To directly test the impact of the unbounded candidates
 Counter, we implemented CMS-B: identical to CMS except the candidates Counter is capped at M
-entries with minimum-count eviction (the same policy as MG). This makes CMS-B's total memory
+entries with minimum-count item eviction: when the Counter is full, the item with the
+lowest count is removed and replaced by the new item. This matches the Space-Saving replacement
+policy - not Misra-Gries, which decrements all counters by 1 on overflow rather than evicting a
+single entry. This makes CMS-B's total memory
 directly comparable to MG and SS under a strict M-slot budget. We ran CMS-B on zipf_1_3 across
 all three budgets and three seeds (9 additional runs, appended to results_full.csv). Results and
 analysis are in §4.2 and §5.3.
@@ -360,6 +381,11 @@ analysis are in §4.2 and §5.3.
   Source file: `retail.dat` (gzip-compressed; auto-detected by loader).
   Same basket→stream parsing as Kosarak. N = 908,576 (no truncation needed;
   full dataset used). Stream order preserved from file.
+
+**Order-sensitivity test:** To assess MG and SS sensitivity to stream ordering
+(both are theoretically order-sensitive near the k-boundary), we ran all five
+algorithms on 3 randomly shuffled permutations of each real dataset (seeds 1–3;
+original file order = seed 0), totalling 90 additional runs (§4.3).
 
 **Fig. A1 — Rank-frequency log-log plots for real datasets:**
 
@@ -491,7 +517,8 @@ SS grows from ~27 MB to ~42 MB: keys are Python ints, but the heap accumulates O
 (count, item) tuples over N=1M updates (each update pushes to heap; lazy deletion only cleans
 during evictions). After 1M updates the heap can hold hundreds of thousands of stale tuples
 (~72 bytes each), dominating SS memory. This is a measurement artifact of the lazy-deletion
-implementation, not an inherent property of the Space-Saving algorithm.
+implementation, not an inherent property of the Space-Saving algorithm
+(implementation artifact — see §3.2 for full memory_bytes breakdown).
 
 ### 4.2 Main Result
 
@@ -531,6 +558,24 @@ errors, not by the unbounded candidate tracking alone. Bounding the Counter to M
 substantially improves CMS precision (0.403 → 0.733), but a gap of 0.267 persists, attributable
 to hash collisions in the sketch table rather than candidate list size.
 
+**Bounded-candidate ablation — Precision@k on Kosarak (seed=0):**
+
+| Algorithm | M=500 | M=2000 | M=8000 |
+|---|---|---|---|
+| CMS | 0.250 | 0.600 | 0.960 |
+| CMS-B | 0.590 | 0.800 | 0.960 |
+| CMS-CU | 0.350 | 0.880 | 1.000 |
+| MG | 0.780 | 1.000 | 1.000 |
+| SS | 0.790 | 1.000 | 1.000 |
+
+On Kosarak (real dataset, skew=0.0128), CMS-B achieves Precision@k = 0.590 at M=500,
+0.800 at M=2000, and 0.960 at M=8000. Standard CMS achieves 0.250, 0.600, and 0.960.
+MG achieves 0.780, 1.000, and 1.000. The pattern is consistent with Zipf α=1.3: bounding
+the candidate list improves sketch precision but does not close the gap to MG/SS, confirming
+that sketch collision errors are the primary cause. The CMS-B vs MG gap at M=500 on Kosarak
+is 0.190 (vs 0.267 on Zipf α=1.3), reflecting that Kosarak's moderate skew (0.0128 vs 0.094)
+already limits sketch accuracy more severely.
+
 **Budget sensitivity.** All algorithms benefit from larger M, but the gains are asymmetric:
 sketches show steep improvement (CMS: +0.394, CS: +0.458 from M=500 to M=8000), while MG/SS
 show more modest gains (+0.181 and +0.179), because they already perform well at M=500 on
@@ -561,7 +606,36 @@ CMS: +0.394, CS: +0.458, CMS-CU: +0.321, MG: +0.181, SS: +0.179. Sketches gain m
 budget scaling because their error is inversely proportional to w (the sketch width), while
 MG/SS degrade gracefully even at M=500 on skewed data.
 
+**Order sensitivity (real datasets).** Precision@k across 3 random permutations
+of Kosarak and Retail at M=500 (original file order = seed 0; shuffled = seeds 1–3):
+
+| Dataset | Algorithm | Original | Shuffled mean | Shuffled std |
+|---------|-----------|----------|---------------|--------------|
+| Kosarak | CMS | 0.250 | 0.220 | 0.010 |
+| Kosarak | CMS-CU | 0.350 | 0.357 | 0.038 |
+| Kosarak | CS | 0.150 | 0.157 | 0.021 |
+| Kosarak | MG | 0.780 | 0.707 | 0.031 |
+| Kosarak | SS | 0.790 | 0.710 | 0.026 |
+| Retail | CMS | 0.240 | 0.197 | 0.015 |
+| Retail | CMS-CU | 0.270 | 0.290 | 0.017 |
+| Retail | CS | 0.150 | 0.147 | 0.021 |
+| Retail | MG | 0.560 | 0.573 | 0.038 |
+| Retail | SS | 0.560 | 0.580 | 0.036 |
+
+MG and SS show non-trivial variance at M=500 (std ≈ 0.03–0.04), consistent with theoretical
+order-sensitivity at tight budgets where the algorithm is near the k-boundary. At M=2000 and
+M=8000, both MG and SS achieve std=0.000 on both datasets, confirming that ordering sensitivity
+disappears once the budget is sufficient to capture all heavy items reliably. Sketches show
+comparable or smaller variance (std ≈ 0.01–0.04 at M=500), indicating that ordering effects
+are not unique to counter-based algorithms at this scale.
+
 ### 4.4 Decision Rules
+
+Memory model note: the rules below are derived from the full 210-run grid
+where sketches use an unbounded candidate Counter (two-component memory model).
+Under a strictly bounded M-slot model, see the CMS-B ablation in §4.2:
+Rule 1 holds with a reduced but persistent gap (CMS-B = 0.733 vs MG = 1.000
+at M=500 on Zipf α=1.3).
 
 The following rules are derived directly from the data:
 
@@ -636,14 +710,11 @@ gradient makes background item ranking impossible.*
 
 2. **MG throughput gap:** MG is **15× faster than CMS** and **28× faster than CMS-CU**. We
    expected MG to be faster (no hashing, simple dict operations), but this magnitude surprised us.
-   The likely explanation is update path asymmetry on skewed streams: MG's common-case
-   update is a single Python dict increment (`self._counters[item] += 1`), whereas CMS
-   performs d=5 independent hash computations followed by 5 array index increments,
-   plus a candidates Counter update — roughly 7× more operations per update.
-   The O(m) eviction loop in MG is triggered only when a new unseen item arrives and
-   the table is full; on skewed streams this is rare (most updates hit the heavy-hitter
-   branch). The sketch numpy table itself is small (4 KB at M=500) and cache-warm,
-   but the per-update operation count dominates throughput at this scale.
+   The throughput gap reflects operation-count asymmetry: MG's common-case
+   update is a single Python dict increment (`self._counters[item] += 1`); CMS
+   performs d=5 hash computations, 5 numpy array writes, and one Counter update per item —
+   approximately 7× more operations. The O(m) eviction scan in MG is rare on
+   skewed streams where most updates hit already-tracked items.
 
 3. **Uniform precision at M=8000 — MG reaches only 35.7%:** The theoretical guarantee for MG
    (all items with frequency > N/(m+1)) at M=8000 is items with frequency > 1,000,000/8001 ≈ 125.
@@ -689,13 +760,13 @@ gradient makes background item ranking impossible.*
   when |T_hat|=k (guaranteed by our `topk(k)` interface). The two metrics are not independently
   informative in this setup. We include both per the template requirement and note this explicitly.
 
-- **Real datasets use 1 seed:** We have no variance estimate for Kosarak or Retail. The
-  precision values reported are from a single run (seed=0) and may not represent the expected
-  value across stream orderings. MG and SS are order-sensitive algorithms — their precision
-  may vary across different stream orderings of the same dataset. A more rigorous evaluation
-  would run 3–5 random permutations of the real datasets. We consider this a minor threat
-  given that real datasets have deterministic item frequencies, and Top-k identification
-  depends primarily on frequency magnitude rather than arrival order.
+- **Real dataset order sensitivity:** addressed by running 3 shuffled permutations
+  of each real dataset (90 additional runs, seeds 1–3). MG on Kosarak:
+  original=0.780, shuffled=0.707±0.031. SS on Kosarak: original=0.790,
+  shuffled=0.710±0.026. MG and SS show non-trivial variance at M=500 (std≈0.03),
+  consistent with theoretical order-sensitivity at tight budgets. At M=2000 and
+  M=8000, both achieve std=0.000, confirming that ordering sensitivity disappears
+  when the budget is sufficient to capture all heavy items reliably.
 
 - **MG/SS missing key policy:** the choice f_hat=0 maximally penalizes relative error for rare
   items. An alternative policy (f_hat = min_counter in the summary) would reduce relative error
@@ -725,17 +796,35 @@ gradient makes background item ranking impossible.*
 This study provides a comprehensive head-to-head comparison of two algorithm families for
 top-k heavy hitter identification in data streams under a fair memory budget definition.
 
-The key finding is consistent across all tested conditions: **counter-based summaries (MG, SS) substantially outperform
-hash-based sketches (CMS, CMS-CU, CS) for Top-k identification on skewed streams**, achieving
-Precision@k = 1.000 at M=500 on Zipf α=1.3 and ≥0.78 on Kosarak, while the best sketch
-(CMS-CU) requires M=8000 to match this on Zipf α=1.3, and still falls short on Kosarak.
-This conclusion holds under the two-component memory model described in §3.2: sketches use
-M slots plus an F0-sized candidate list, while MG/SS use only M slots. Under a fully bounded
-memory model, sketch Top-k quality would likely be lower (smaller candidate pool → lower
-recall), further strengthening the MG/SS advantage.
+The key finding is consistent across all tested conditions:
 
-Additionally, **MG delivers this quality at 15× the throughput of CMS and 28× the throughput
-of CMS-CU**, making it the Pareto-dominant choice on skewed streams — both faster and more accurate.
+**(a) Two-component memory model (full grid, 210 runs):** MG and SS achieve
+Precision@k = 1.000 at M=500 on Zipf α=1.3; best sketch (CMS-CU) = 0.523.
+Sketches carry a ~1 MB auxiliary candidates Counter not bounded by M.
+Counter-based summaries substantially outperform hash-based sketches for
+Top-k identification on skewed streams (MG/SS ≥ 0.780 on Kosarak at M=500;
+best sketch CMS-CU = 0.350). The best sketch (CMS-CU) requires M=8000 to
+match MG/SS on Zipf α=1.3, and still falls short on Kosarak.
+
+**(b) Bounded M-slot model (CMS-B ablation, 12 runs on Zipf α=1.3 and Kosarak):**
+CMS-B achieves Precision@k = 0.733 (Zipf α=1.3, M=500) and 0.590 (Kosarak,
+M=500) — better than standard CMS but still below MG (1.000 and 0.780).
+Confirms gap is driven by sketch collision errors, not candidate tracking.
+
+**(c) Throughput:** MG at 1.96M updates/sec vs CMS at 130K/sec — holds
+regardless of memory model. MG is Pareto-dominant on skewed streams: both
+faster and more accurate than any sketch. The throughput gap reflects
+operation-count asymmetry: MG's common-case update is a single dict increment;
+CMS performs d=5 hash computations, 5 array writes, and one Counter update
+per item — approximately 7× more operations.
+
+**(d) Real dataset order robustness (shuffle ablation, 90 runs):** MG and SS
+showed non-trivial variance at M=500 across 3 random orderings of Kosarak and
+Retail (MG Kosarak std=0.031, SS Kosarak std=0.026; MG Retail std=0.038,
+SS Retail std=0.036 at M=500). This is consistent with theoretical
+order-sensitivity near the k-boundary at tight budgets. At M=2000 and M=8000,
+both achieve std=0.000, confirming that ordering sensitivity disappears once
+the budget is sufficient to capture all heavy items reliably.
 
 The mixture dataset result reveals an important nuance: **skew (F2/F1²) alone does not fully
 predict Top-k difficulty**. The sharpness of the boundary between heavy items and background
@@ -760,9 +849,10 @@ identify the top-k.
   improve per-dataset difficulty prediction.
 - **Adaptive algorithms:** hybrid approaches that switch between sketch and summary modes
   based on observed skew could capture the best of both families.
-- **Full CMS-B grid:** The 9-run CMS-B ablation on zipf_1_3 shows Precision@k = 0.733 at
-  M=500 under a bounded memory model. A full 210-run grid with CMS-B would clarify whether
-  bounded candidate tracking changes family rankings across all datasets and skew levels.
+- **Full CMS-B grid:** CMS-B ablations on Zipf α=1.3 (Precision@k = 0.733 at M=500)
+  and Kosarak (Precision@k = 0.590 at M=500) both show persistent gaps below MG.
+  A full 210-run CMS-B grid would determine whether bounded candidate tracking changes
+  family rankings across all datasets and budgets.
 
 ---
 

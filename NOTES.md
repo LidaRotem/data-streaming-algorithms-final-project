@@ -242,6 +242,55 @@ Maintained by: PM
 **Blockers / questions for next stage:**
 - Hebrew translation (Stage 6 remaining) still pending PM briefing.
 
+### Stage 6a Part 7 handback
+`[2026-03-03] [Coding Agent] Stage 6a Part 7 complete. All 18 DoD items confirmed ✅.`
+
+**CMS-B precision — zipf_1_3 (mean over seeds 0,1,2) and Kosarak (seed=0):**
+| Algorithm | M=500 | M=2000 | M=8000 | Dataset |
+|---|---|---|---|---|
+| CMS-B | 0.733 | 0.973 | 1.000 | zipf_1_3 |
+| MG | 1.000 | 1.000 | 1.000 | zipf_1_3 |
+| CMS-B | 0.590 | 0.800 | 0.960 | kosarak |
+| CMS | 0.250 | 0.600 | 0.960 | kosarak |
+| MG | 0.780 | 1.000 | 1.000 | kosarak |
+
+**Order sensitivity finding (real datasets, M=500):**
+MG and SS show non-trivial variance at M=500 (std ≈ 0.03–0.04), consistent with
+theoretical order-sensitivity near the k-boundary at tight budgets.
+At M=2000 and M=8000, both achieve std=0.000 on both datasets.
+
+**MG/SS std values at M=500:**
+| Dataset | MG std | SS std |
+|---|---|---|
+| Kosarak | 0.031 | 0.026 |
+| Retail | 0.038 | 0.036 |
+
+**Report fixes A–G all applied:**
+- Fix A ✅ PYTHONHASHSEED note added to §3.1 (hash(n)==n for Python ints, deterministic)
+- Fix B ✅ CMS-B eviction corrected to SS-style (single item eviction, not MG decrement-all)
+- Fix C ✅ SS memory_bytes clarification added to §3.2; §4.1 Fig. 5 labeled "(implementation artifact — see §3.2)"
+- Fix D ✅ Three-regime framing: §4.4 memory model note + §6.1 points (a)–(d) with real numbers
+- Fix E ✅ All L2/L3 and cache-warm references removed; replaced with operation-count explanation
+- Fix F ✅ CMS-B Kosarak table (M=500: 0.590, M=2000: 0.800, M=8000: 0.960) added to §4.2
+- Fix G ✅ §3.3.2 order-sensitivity note; §4.3 table (10 rows, 5 algos × 2 datasets at M=500);
+          §5.3 updated with real numbers; §6.1 point (d) filled; §6.2 CMS-B updated
+
+**pytest results:** 63 passed, 0 failed ✅
+
+**results_full.csv:** 312 rows ✅
+
+**Decisions made (not specified in briefing):**
+- Order sensitivity table (§4.3) presented at M=500 only (most sensitive regime) with note that
+  M=2000 and M=8000 yield std=0.000. The overall cross-M std values are inflated by budget
+  variance (not ordering variance) and would mislead.
+- run_shuffle_ablation.py is self-contained (does not import from run_all.py) as briefed.
+
+**Deviations:**
+- None from briefing.
+
+**Blockers / questions for next stage:**
+- Hebrew translation still pending PM briefing.
+
 ### Stage 7 handback
 `[pending]`
 

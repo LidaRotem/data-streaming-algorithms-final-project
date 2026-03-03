@@ -25,6 +25,15 @@ Given the same memory budget, how does **Top-k heavy hitters** identification co
 **Note (Stage 6a Part 5, 2026-03-03):** CMS-B ablation added.
 results_full.csv now has 219 rows (210 original + 9 CMS-B on zipf_1_3).
 
+**Note (Stage 6a Part 7, 2026-03-03):** CMS-B extended to Kosarak + shuffle ablation complete.
+results_full.csv now has 312 rows:
+  - 210 original (5 algos × 6 datasets × 3 budgets × seeds)
+  - 9 CMS-B on zipf_1_3 (3 budgets × 3 seeds)
+  - 3 CMS-B on kosarak (3 budgets × 1 seed)
+  - 90 shuffle runs (2 real datasets × 5 algos × 3 budgets × 3 shuffle seeds)
+CMS-B tested on: zipf_1_3 and kosarak.
+Real dataset shuffle ablation complete (90 runs, seeds 1–3).
+
 **Current instruction: Stage 5 DONE. Stage 6 IN PROGRESS.**
 
 ---
@@ -67,9 +76,11 @@ Expected rows in `results/results_full.csv`:
 - Real: 2 × 3 × 5 × 1 = **30**
 - **Total: 210 rows** ✅ confirmed
 
-**Additional variant (Stage 6a Part 5):**
-- CMS-B (bounded candidate ablation): zipf_1_3 only, 3 budgets × 3 seeds = **9 rows**
-- Updated total: **219 rows** in results_full.csv
+**Additional variants (Stage 6a Part 5 + Part 7):**
+- CMS-B on zipf_1_3: 3 budgets × 3 seeds = **9 rows**
+- CMS-B on kosarak: 3 budgets × 1 seed = **3 rows**
+- Shuffle ablation (real datasets): 2 datasets × 5 algos × 3 budgets × 3 seeds = **90 rows**
+- Updated total: **312 rows** in results_full.csv
 
 Note: zipf was split into two datasets (zipf_1_1 α=1.1 and zipf_1_3 α=1.3) — this is why the count is 210 not 165.
 
