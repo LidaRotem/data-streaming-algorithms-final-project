@@ -32,7 +32,7 @@ or when point-query accuracy on all buckets is critical, use CMS-CU.
 
 ### 0.1 Primary Research Question
 
-Given the same memory budget, how does **Top-k heavy hitters** identification compare between
+Given the same M-slot budget (plus an auxiliary candidate list of size F0 for sketches), how does **Top-k heavy hitters** identification compare between
 **hash-based sketches** (CMS / CMS-CU / Count-Sketch) and **counter-based summaries** (Misra–Gries / Space-Saving),
 and how do results change with **stream skew** and across **different real datasets**?
 
@@ -66,8 +66,10 @@ point-query error by frequency bucket, and performance metrics.
   15× faster than any sketch, with minimal memory overhead.
 - **High skew + need low point-query MAE on heavy items** → use **SS**: best MAE on heavy items
   (grand mean 120.2 at M=500 vs MG 590.1), near-perfect Top-k recall.
-- **Moderate skew + need accurate point queries across all buckets** → use **CMS-CU**:
+- **Moderate skew + need accurate point queries on heavy and mid-frequency items** → use **CMS-CU**:
   best relative error among sketches, largest CMS improvement on moderately skewed streams.
+  For rare-item accuracy specifically, Count-Sketch's zero-mean estimator achieves lower
+  relative error (43.5%) than CMS-CU; see §5.2.
 - **Low skew (uniform-like, skew < 0.001)** → all algorithms struggle equally;
   no algorithm exceeds ~6% Precision@k at M=500; use **CMS** for implementation simplicity.
 - **Real datasets with natural skew (Kosarak, Retail)** → MG/SS clearly superior at M≤2000.
@@ -103,8 +105,9 @@ Maintaining an exact frequency dictionary has three fundamental costs:
 
 ### 1.3 Research Questions
 
-- **RQ1 (Primary):** Under the same memory budget M, which algorithm family identifies the
-  top-k heavy hitters more accurately across varying skew regimes (synthetic) and real datasets?
+- **RQ1 (Primary):** Under the same M-slot budget (plus an auxiliary candidate list of size F0
+  for sketches), which algorithm family identifies the top-k heavy hitters more accurately
+  across varying skew regimes (synthetic) and real datasets?
 - **RQ2 (Secondary):** How does point-query accuracy (estimating `f(i)`) compare across families,
   and what are the throughput and latency tradeoffs?
 
@@ -165,11 +168,11 @@ init(d, w):
 
 update(item):
     candidates[item] += 1    # unbounded — grows with F0
-    for j in 0..d:
+    for j in 0..d−1:
         table[j][hash_j(item) mod w] += 1
 
 query(item):
-    return min(table[j][hash_j(item) mod w] for j in 0..d)
+    return min(table[j][hash_j(item) mod w] for j in 0..d−1)
 
 topk(k):
     return top-k by query(item) over all items in candidates
@@ -222,6 +225,14 @@ update(item):
 query(item):
     return float(counters.get(item, 0))  # missing key → 0
 ```
+
+**Implementation note:** the decrement step iterates all m counters in a plain Python dict
+(collecting keys with count ≤ 0 in a separate list before deleting them to avoid mutation
+during iteration). Despite being O(m) per eviction event, MG achieves ~1.96M updates/sec
+— 15× faster than CMS — because eviction is rare on skewed streams (most updates hit the
+`item in counters` branch) and the small dict (47 KB at M=500) fits entirely in CPU L2/L3
+cache, making random-access dict lookups much faster than hash-indexed numpy array accesses
+across CMS's 1 MB+ table.
 
 **Memory:** O(m) key-count pairs. m = M in this experiment. Key overhead scales with key size.
 
@@ -284,12 +295,13 @@ but not memory allocator padding or interpreter internals. Measured mean values:
 | MG | 46 KB | 178 KB | 988 KB |
 | SS | 25.8 MB | 31.3 MB | 39.6 MB |
 
-One implementation caveat: our sketch implementations maintain an auxiliary candidates Counter
-that tracks all distinct items seen, enabling `topk()` queries without a separate heavy-hitter
-detection pass. This Counter grows with F0 and is unbounded — it is not part of the M-counter
-budget. We include it in `memory_bytes` for transparency (Fig. 5), but it means sketches use
-more total memory than the M-counter definition implies. A production sketch implementation
-would use a space-bounded heavy-hitter detection sub-routine (e.g., a small MG summary) instead.
+Our memory model has two components: (1) the M-slot budget (sketch table or summary entries),
+which is the primary comparison axis; and (2) an auxiliary candidates Counter used by sketch
+implementations to enable `topk()` queries, which grows with F0 and is not bounded by M.
+In our datasets F0 ranges from 9,547 to 25,343, adding approximately 0.5–1.5 MB of auxiliary
+memory to each sketch. All results should be interpreted under this two-component model.
+A production sketch implementation would replace the unbounded Counter with a bounded
+heavy-hitter sub-routine (e.g., a small MG summary of size λ·M), which we leave as future work.
 This is noted as a threat to validity in §5.3.
 
 ### 3.3 Data
@@ -305,8 +317,16 @@ This is noted as a threat to validity in §5.3.
 
 #### 3.3.2 Real Datasets
 
-- **Kosarak:** anonymized clickstream of Hungarian news portal. Parsed by flattening transaction lists to a stream of integer item IDs. Gzip-compressed; auto-detected. Truncated at N_max=1,000,000.
-- **Retail:** retail transaction dataset. Same parsing and truncation logic. N=908,576 (no truncation needed).
+- **Kosarak:** anonymized clickstream of a Hungarian news portal [6].
+  Source file: `kosarak.dat` (gzip-compressed; auto-detected by loader).
+  Format: one transaction (basket) per line, space-separated integer item IDs.
+  Parsed by iterating all baskets and emitting each item ID as a separate stream event
+  (basket order preserved; no shuffling). Truncated at N_max = 1,000,000 events.
+
+- **Retail:** retail transaction dataset from the same repository [6].
+  Source file: `retail.dat` (gzip-compressed; auto-detected by loader).
+  Same basket→stream parsing as Kosarak. N = 908,576 (no truncation needed;
+  full dataset used). Stream order preserved from file.
 
 #### 3.3.3 Dataset Characterization
 
@@ -418,7 +438,7 @@ due to per-update Counter management for candidate tracking.
 A single panel showing mean memory_bytes vs M for each algorithm.
 
 *Takeaway:* Sketches (CMS, CMS-CU, CS) use ~1.03–1.09 MB regardless of M (fixed numpy array
-plus a small Counter for candidates). MG scales linearly from 47K to 1.01MB bytes (key-count pairs).
+plus a ~0.5–1.5 MB candidates Counter growing with F0). MG scales linearly from 47K to 1.01MB bytes (key-count pairs).
 SS grows from ~27MB to ~42MB — the large footprint comes from Python string objects stored per key.
 In terms of raw bytes, SS is the most memory-intensive algorithm despite only holding M key-count entries.
 
@@ -483,9 +503,11 @@ The following rules are derived directly from the data:
    (grand mean: 120.2 at M=500, 51.7 at M=2000, **1.0 at M=8000**) due to its overcount-bounding
    guarantee. MG is second-best for heavy MAE (590.1 at M=500, improving to 44.8 at M=8000).
 
-3. **CMS-CU is the best sketch when skew > 0.01 and M is moderate:** At M=2000 on kosarak, CMS-CU
-   improves over CMS by 28 percentage points. The cost is ~2× slower updates (69K vs 130K/s).
-   Do not use CMS-CU on low-skew data — the overhead is not justified.
+3. **CMS-CU is the best sketch for heavy and mid-frequency point queries when skew > 0.01 and M is moderate:**
+   At M=2000 on kosarak, CMS-CU improves over CMS by 28 percentage points. The cost is ~2× slower
+   updates (69K vs 130K/s). Do not use CMS-CU on low-skew data — the overhead is not justified.
+   For rare-item accuracy specifically, Count-Sketch's zero-mean estimator achieves lower
+   relative error (43.5%) than CMS-CU; see §5.2.
 
 4. **On uniform or near-uniform streams, no algorithm is reliable at M=500 or M=2000:**
    Maximum Precision@k at M=2000 is 0.088 (MG). Even at M=8000, MG reaches only 35.7%.
@@ -619,6 +641,10 @@ The key finding is consistent across all tested conditions: **counter-based summ
 hash-based sketches (CMS, CMS-CU, CS) for Top-k identification on skewed streams**, achieving
 Precision@k = 1.000 at M=500 on Zipf α=1.3 and ≥0.78 on Kosarak, while the best sketch
 (CMS-CU) requires M=8000 to match this on Zipf α=1.3, and still falls short on Kosarak.
+This conclusion holds under the two-component memory model described in §3.2: sketches use
+M slots plus an F0-sized candidate list, while MG/SS use only M slots. Under a fully bounded
+memory model, sketch Top-k quality would likely be lower (smaller candidate pool → lower
+recall), further strengthening the MG/SS advantage.
 
 Additionally, **MG delivers this quality at 15× the throughput of CMS and 28× the throughput
 of CMS-CU**, making it the Pareto-dominant choice on skewed streams — both faster and more accurate.
