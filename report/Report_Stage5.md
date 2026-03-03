@@ -329,7 +329,7 @@ k=100 for all runs. One row per run appended to `results/results_full.csv`.
 | kosarak | 1,000,000 | 25,343 | 1,000,000 | 12,806,120,190 | 0.012806 | Real clickstream; natural moderate skew |
 | retail | 908,576 | 16,470 | 908,576 | 5,364,936,090 | 0.006499 | Real retail transactions; mild skew |
 
-Skew ordering (ascending): uniform (0.0001) < retail (0.0065) < mixture (0.0050) < kosarak (0.0128) < zipf_1_1 (0.034) < zipf_1_3 (0.094).
+Skew ordering (ascending): uniform (0.0001) < mixture (0.0050) < retail (0.0065) < kosarak (0.0128) < zipf_1_1 (0.034) < zipf_1_3 (0.094).
 
 Note: mixture and retail have similar skew values (~0.005–0.007), but mixture has engineered
 heavy items while retail has natural distribution, leading to different algorithm behavior.
@@ -408,8 +408,8 @@ at much smaller M.
 ### 4.3 Sensitivity / Ablations
 
 **Skew effect.** Precision@k increases monotonically with skew across all algorithms and budgets,
-but the rate differs. For MG at M=500: 0.013 (uniform) → 0.507 (mixture) → 0.780 (kosarak) →
-0.997 (zipf_1_1) → 1.000 (zipf_1_3). For CMS-CU at M=500: 0.030 → 0.440 → 0.350 → 0.510 → 0.523.
+but the rate differs. For MG at M=500: 0.013 (uniform) → 0.507 (mixture) → 0.560 (retail) → 0.780 (kosarak) →
+0.997 (zipf_1_1) → 1.000 (zipf_1_3). For CMS-CU at M=500: 0.030 → 0.440 → 0.270 → 0.350 → 0.510 → 0.523.
 Note that CMS-CU's trajectory is non-monotonic (kosarak has lower CMS-CU precision at M=500 than
 mixture), reflecting that kosarak's larger F0 (25,343 vs 10,000) causes more hash collisions.
 
