@@ -230,7 +230,7 @@ def plot_memory(df, plots_dir):
     ax.grid(True, alpha=0.3, which='both')
     ax.text(
         0.02, 0.02,
-        'MG grows with distinct items tracked; SS heap accumulates O(N) stale tuples\n'
+        'SS: indexed heap, O(M) memory; MG: bounded dict, O(M)\n'
         'Sketches: numpy table (4-64KB) + candidates Counter (~1MB, dominates)',
         transform=ax.transAxes, fontsize=8, color='#555555',
         verticalalignment='bottom',
